@@ -4,7 +4,10 @@ This file records consumer-facing changes to KeelMatrix.AiToolContract.
 
 ## [Unreleased]
 
-No unreleased changes.
+### Fixed
+
+- Closed unsupported JSON Schema keywords and malformed shapes by construction, including unknown members and empty applicator arrays.
+- Kept reference and definition changes unsupported even when another schema change is classified, and canonicalized representation-equivalent JSON numbers without reporting drift.
 
 ## [0.1.0-rc.1]
 

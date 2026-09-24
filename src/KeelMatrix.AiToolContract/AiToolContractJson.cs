@@ -6,6 +6,21 @@ namespace KeelMatrix.AiToolContract;
 /// <summary>Reads, writes, and canonicalizes the KeelMatrix baseline format.</summary>
 public static class AiToolContractJson
 {
+    private static readonly HashSet<string> BaselineMembers = new(StringComparer.Ordinal)
+    {
+        "schemaVersion",
+        "tools"
+    };
+
+    private static readonly HashSet<string> ToolMembers = new(StringComparer.Ordinal)
+    {
+        "name",
+        "description",
+        "inputSchema",
+        "returnSchema",
+        "requiresApproval"
+    };
+
     /// <summary>Serializes a version-one baseline deterministically.</summary>
     public static string Serialize(AiToolContractBaseline baseline, AiToolContractLimits? limits = null)
     {
@@ -59,6 +74,7 @@ public static class AiToolContractJson
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
                 throw Malformed("The baseline root must be a JSON object.");
+            RejectUnknownMembers(root, BaselineMembers, "baseline");
             if (!root.TryGetProperty("schemaVersion", out var version) || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var schemaVersion))
                 throw Malformed("The baseline must contain an integer schemaVersion.");
             if (schemaVersion != 1)
@@ -74,6 +90,7 @@ public static class AiToolContractJson
                     throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, "The baseline exceeds the configured tool-count limit."));
                 if (toolElement.ValueKind != JsonValueKind.Object)
                     throw Malformed("Every tools entry must be an object.");
+                RejectUnknownMembers(toolElement, ToolMembers, "tool");
                 var name = ReadRequiredString(toolElement, "name");
                 if (!names.Add(name))
                     throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.DuplicateToolIdentity, "The baseline contains duplicate tool identity '" + name + "'."));
@@ -132,6 +149,13 @@ public static class AiToolContractJson
 
     private static AiToolContractException Malformed(string message) =>
         new(new AiToolContractDiagnostic(AiToolDiagnosticKind.MalformedBaseline, message));
+
+    private static void RejectUnknownMembers(JsonElement element, HashSet<string> allowed, string context)
+    {
+        foreach (var property in element.EnumerateObject())
+            if (!allowed.Contains(property.Name))
+                throw Malformed("Unknown " + context + " member '" + property.Name + "'.");
+    }
 
     private static void RejectDuplicateProperties(string json, AiToolContractLimits limits)
     {
@@ -197,33 +221,6 @@ internal static class SchemaSemantics
         "string"
     };
 
-    private static readonly HashSet<string> SupportedKeywords = new(StringComparer.Ordinal)
-    {
-        "$defs",
-        "$ref",
-        "additionalProperties",
-        "allOf",
-        "anyOf",
-        "contains",
-        "definitions",
-        "enum",
-        "exclusiveMaximum",
-        "exclusiveMinimum",
-        "items",
-        "maxItems",
-        "maxLength",
-        "maximum",
-        "minItems",
-        "minLength",
-        "minimum",
-        "not",
-        "nullable",
-        "oneOf",
-        "properties",
-        "required",
-        "type"
-    };
-
     internal static void Validate(JsonElement schema)
     {
         ValidateSchema(schema, "$");
@@ -239,60 +236,48 @@ internal static class SchemaSemantics
         foreach (var property in schema.EnumerateObject())
         {
             var propertyPath = path + "." + property.Name;
-            if (!SupportedKeywords.Contains(property.Name))
+            if (!SchemaKeywordMatrix.TryGet(property.Name, out var definition))
                 throw Unsupported("Schema keyword '" + property.Name + "' at " + propertyPath + " has unsupported semantics and requires review.");
 
-            switch (property.Name)
+            switch (definition!.ValueShape)
             {
-                case "$defs":
-                case "definitions":
-                case "properties":
+                case SchemaKeywordValueShape.SchemaMap:
                     ValidateSchemaMap(property.Value, propertyPath);
                     break;
-                case "$ref":
+                case SchemaKeywordValueShape.Reference:
                     RequireKind(property.Value, JsonValueKind.String, propertyPath);
                     break;
-                case "additionalProperties":
+                case SchemaKeywordValueShape.SchemaOrBoolean:
                     ValidateSchemaOrBoolean(property.Value, propertyPath);
                     break;
-                case "allOf":
-                case "anyOf":
-                case "oneOf":
-                    ValidateSchemaArray(property.Value, propertyPath);
-                    break;
-                case "contains":
-                case "not":
-                    ValidateSchemaOrBoolean(property.Value, propertyPath);
-                    break;
-                case "items":
+                case SchemaKeywordValueShape.SchemaOrBooleanNoTuple:
                     if (property.Value.ValueKind == JsonValueKind.Array)
                         throw Unsupported("Tuple-form items at " + propertyPath + " is valid JSON Schema but is not supported for contract comparison.");
                     ValidateSchemaOrBoolean(property.Value, propertyPath);
                     break;
-                case "enum":
-                    RequireKind(property.Value, JsonValueKind.Array, propertyPath);
+                case SchemaKeywordValueShape.NonEmptySchemaArray:
+                    ValidateSchemaArray(property.Value, propertyPath);
                     break;
-                case "required":
+                case SchemaKeywordValueShape.EnumArray:
+                    ValidateEnumArray(property.Value, propertyPath);
+                    break;
+                case SchemaKeywordValueShape.NonEmptyStringArray:
                     ValidateStringArray(property.Value, propertyPath);
                     break;
-                case "type":
+                case SchemaKeywordValueShape.Type:
                     ValidateType(property.Value, propertyPath);
                     break;
-                case "nullable":
+                case SchemaKeywordValueShape.Boolean:
                     RequireKind(property.Value, JsonValueKind.True, JsonValueKind.False, propertyPath);
                     break;
-                case "exclusiveMaximum":
-                case "exclusiveMinimum":
-                case "maximum":
-                case "minimum":
+                case SchemaKeywordValueShape.Number:
                     RequireKind(property.Value, JsonValueKind.Number, propertyPath);
                     break;
-                case "maxItems":
-                case "maxLength":
-                case "minItems":
-                case "minLength":
+                case SchemaKeywordValueShape.NonNegativeInteger:
                     ValidateNonNegativeInteger(property.Value, propertyPath);
                     break;
+                default:
+                    throw Unsupported("Schema keyword '" + property.Name + "' at " + propertyPath + " has no fail-closed validation rule.");
             }
         }
     }
@@ -307,6 +292,8 @@ internal static class SchemaSemantics
     private static void ValidateSchemaArray(JsonElement value, string path)
     {
         RequireKind(value, JsonValueKind.Array, path);
+        if (value.GetArrayLength() == 0)
+            throw Malformed("JSON Schema applicator array at " + path + " must contain at least one schema.");
         var index = 0;
         foreach (var child in value.EnumerateArray())
             ValidateSchemaOrBoolean(child, path + "[" + index++ + "]");
@@ -322,6 +309,8 @@ internal static class SchemaSemantics
     private static void ValidateStringArray(JsonElement value, string path)
     {
         RequireKind(value, JsonValueKind.Array, path);
+        if (value.GetArrayLength() == 0)
+            throw Malformed("JSON Schema string array at " + path + " must contain at least one value.");
         var values = new HashSet<string>(StringComparer.Ordinal);
         var index = 0;
         foreach (var item in value.EnumerateArray())
@@ -330,6 +319,22 @@ internal static class SchemaSemantics
             RequireKind(item, JsonValueKind.String, itemPath);
             if (!values.Add(item.GetString()!))
                 throw Malformed("JSON Schema array at " + path + " contains duplicate values.");
+        }
+    }
+
+    private static void ValidateEnumArray(JsonElement value, string path)
+    {
+        RequireKind(value, JsonValueKind.Array, path);
+        if (value.GetArrayLength() == 0)
+            throw Malformed("JSON Schema enum at " + path + " must contain at least one value.");
+        var values = new HashSet<string>(StringComparer.Ordinal);
+        var index = 0;
+        foreach (var item in value.EnumerateArray())
+        {
+            var itemPath = path + "[" + index++ + "]";
+            var canonical = CanonicalJson.CanonicalizeValue(item);
+            if (!values.Add(canonical))
+                throw Malformed("JSON Schema enum at " + path + " contains duplicate data-model values.");
         }
     }
 
@@ -365,7 +370,7 @@ internal static class SchemaSemantics
     private static void ValidateNonNegativeInteger(JsonElement value, string path)
     {
         RequireKind(value, JsonValueKind.Number, path);
-        if (!value.TryGetInt64(out var integer) || integer < 0)
+        if (!CanonicalJson.TryParseNumber(value.GetRawText(), out var number) || !number.IsInteger || number.IsNegative)
             throw Malformed("JSON Schema value at " + path + " must be a non-negative integer.");
     }
 

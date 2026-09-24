@@ -249,8 +249,9 @@ public static class AiToolContractVerifier
 
     private static void CompareNestedSchemas(JsonElement oldSchema, JsonElement newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
     {
-        foreach (var name in new[] { "items", "additionalProperties", "contains", "not" })
+        foreach (var definition in SchemaKeywordMatrix.All.Where(static definition => definition.ChangeHandling == SchemaKeywordChangeHandling.Classified && definition.Keyword == "items"))
         {
+            var name = definition.Keyword;
             if (oldSchema.TryGetProperty(name, out var oldChild) && newSchema.TryGetProperty(name, out var newChild))
                 CompareSchema(oldChild, newChild, toolName, path + "." + name, input, changes, diagnostics, limits);
             else if (oldSchema.TryGetProperty(name, out _) != newSchema.TryGetProperty(name, out _))
@@ -260,16 +261,21 @@ public static class AiToolContractVerifier
             }
         }
 
-        foreach (var name in new[] { "oneOf", "anyOf", "allOf", "$defs", "definitions" })
+        foreach (var definition in SchemaKeywordMatrix.All.Where(static definition => definition.ChangeHandling == SchemaKeywordChangeHandling.Unsupported))
         {
+            var name = definition.Keyword;
             var oldExists = oldSchema.TryGetProperty(name, out var oldChild);
             var newExists = newSchema.TryGetProperty(name, out var newChild);
             if (oldExists || newExists)
             {
-                if (!oldExists || !newExists || !string.Equals(oldChild.GetRawText(), newChild.GetRawText(), StringComparison.Ordinal))
+                var changed = name == "$ref"
+                    ? !EquivalentIgnoringSchemaSetOrder(oldSchema, newSchema)
+                    : !oldExists || !newExists || !EquivalentIgnoringSchemaSetOrder(oldChild, newChild);
+                if (changed)
                 {
-                    Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path + "." + name, "Reference/composition schema changes require review."));
-                    diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, "Schema composition keyword " + name + " changed at " + path + "."));
+                    var message = name == "$ref" ? "Reference schema target or sibling changed and requires review." : "Reference/composition schema changes require review.";
+                    Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path + "." + name, message));
+                    diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, "Schema keyword " + name + " changed at " + path + "."));
                 }
             }
         }
@@ -342,8 +348,9 @@ public static class AiToolContractVerifier
             expanded = true;
         else if (TryNumber(oldValue, out var oldNumber) && TryNumber(newValue, out var newNumber))
         {
-            narrowed = lowerBound ? newNumber > oldNumber : newNumber < oldNumber;
-            expanded = lowerBound ? newNumber < oldNumber : newNumber > oldNumber;
+            var comparison = newNumber.CompareTo(oldNumber);
+            narrowed = lowerBound ? comparison > 0 : comparison < 0;
+            expanded = lowerBound ? comparison < 0 : comparison > 0;
         }
         else if (!string.Equals(oldValue.GetRawText(), newValue.GetRawText(), StringComparison.Ordinal))
         {
@@ -387,7 +394,7 @@ public static class AiToolContractVerifier
             return null;
         var result = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in property.EnumerateArray())
-            result.Add(item.GetRawText());
+            result.Add(CanonicalJson.CanonicalizeValue(item));
         return result;
     }
 
@@ -414,9 +421,9 @@ public static class AiToolContractVerifier
         return GetTypeSet(element).Contains("null");
     }
 
-    private static bool TryNumber(JsonElement element, out decimal value)
+    private static bool TryNumber(JsonElement element, out CanonicalJson.JsonNumber value)
     {
-        if (element.ValueKind == JsonValueKind.Number && element.TryGetDecimal(out value))
+        if (element.ValueKind == JsonValueKind.Number && CanonicalJson.TryParseNumber(element.GetRawText(), out value))
             return true;
         value = default;
         return false;
@@ -459,6 +466,8 @@ public static class AiToolContractVerifier
                     return false;
             return true;
         }
+        if (oldSchema.ValueKind == JsonValueKind.Number && newSchema.ValueKind == JsonValueKind.Number)
+            return CanonicalJson.NumbersEqual(oldSchema, newSchema);
         return string.Equals(oldSchema.GetRawText(), newSchema.GetRawText(), StringComparison.Ordinal);
     }
 
@@ -466,7 +475,7 @@ public static class AiToolContractVerifier
     {
         var result = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in element.EnumerateArray())
-            result.Add(item.GetRawText());
+            result.Add(CanonicalJson.CanonicalizeValue(item));
         return result;
     }
 }

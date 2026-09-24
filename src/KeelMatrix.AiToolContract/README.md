@@ -31,4 +31,4 @@ This library is offline. It does not call a model, provider, network endpoint, o
 
 Malformed schemas and valid schema forms whose semantics are not implemented fail closed with an explicit diagnostic.
 
-See the [repository documentation](https://github.com/KeelMatrix/AiToolContract) for baseline acceptance, compatibility categories, limits, and privacy guidance.
+See the [JSON Schema support matrix](https://github.com/KeelMatrix/AiToolContract/blob/main/docs/JSON-SCHEMA-SUPPORT.md) for the version-one keyword surface. See the [repository documentation](https://github.com/KeelMatrix/AiToolContract) for baseline acceptance, compatibility categories, limits, and privacy guidance.

@@ -25,7 +25,7 @@ The baseline is a KeelMatrix-owned JSON document. Version one has this shape:
 
 `schemaVersion` is mandatory. Version one is the only accepted version; malformed and unrecognized versions fail closed with distinct diagnostics. A future version must define its migration and compatibility rules before it is accepted.
 
-Object properties are written in ordinal order. JSON Schema `required`, `enum`, and multi-valued `type` arrays are canonicalized as semantic sets because their order is not meaningful to JSON Schema; arrays such as `allOf`, `anyOf`, and `oneOf` retain their order. Whitespace does not affect the baseline. `$ref`, `$defs`, and `definitions` are preserved and compared; malformed schemas and valid forms whose semantics are not implemented fail closed with a diagnostic.
+Object properties are written in ordinal order. JSON Schema `required`, `enum`, and multi-valued `type` arrays are canonicalized as semantic sets because their order is not meaningful to JSON Schema; arrays such as `allOf`, `anyOf`, and `oneOf` retain their order. JSON numbers are canonicalized by data-model value, so lexical forms such as `1` and `1.0` are equivalent. Whitespace does not affect the baseline. `$ref`, `$defs`, and `definitions` are preserved, but any reference/definition change is unsupported and cannot be accepted by either verifier acceptance method. The complete v1 surface is defined in the [JSON Schema support matrix](JSON-SCHEMA-SUPPORT.md); malformed schemas and valid forms whose semantics are not implemented fail closed with a diagnostic.
 
 Tool identities use ordinal, exact matching. Duplicate identities are an explicit error. Names are not normalized, case-folded, or guessed. A rename therefore appears as a removal and an addition.
 

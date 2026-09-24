@@ -8,6 +8,7 @@
     <AnalysisMode>Recommended</AnalysisMode>
     <RepositoryUrl>https://github.com/KeelMatrix/AiToolContract</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <RepositoryBranch>refs/heads/main</RepositoryBranch>
     <PackageProjectUrl>https://github.com/KeelMatrix/AiToolContract</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>

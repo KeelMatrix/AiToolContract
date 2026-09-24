@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Numerics;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 
@@ -193,7 +195,7 @@ internal static class CanonicalJson
                 builder.Append('[');
                 var items = element.EnumerateArray().ToList();
                 if (string.Equals(propertyName, "required", StringComparison.Ordinal) || string.Equals(propertyName, "enum", StringComparison.Ordinal) || string.Equals(propertyName, "type", StringComparison.Ordinal))
-                    items.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.GetRawText(), right.GetRawText()));
+                    items.Sort(static (left, right) => StringComparer.Ordinal.Compare(CanonicalizeValue(left), CanonicalizeValue(right)));
                 var itemIndex = 0;
                 foreach (var item in items)
                 {
@@ -209,6 +211,8 @@ internal static class CanonicalJson
                 builder.Append(JsonSerializer.Serialize(element.GetString()));
                 break;
             case JsonValueKind.Number:
+                builder.Append(CanonicalizeNumber(element.GetRawText()));
+                break;
             case JsonValueKind.True:
             case JsonValueKind.False:
             case JsonValueKind.Null:
@@ -226,5 +230,220 @@ internal static class CanonicalJson
         public int NodeCount { get; set; }
         public int PropertyCount { get; set; }
         public int ArrayItemCount { get; set; }
+    }
+
+    internal static string CanonicalizeValue(JsonElement element)
+    {
+        var builder = new System.Text.StringBuilder();
+        WriteValue(element, builder);
+        return builder.ToString();
+    }
+
+    internal static bool TryParseNumber(string raw, out JsonNumber number)
+    {
+        number = default;
+        if (string.IsNullOrEmpty(raw))
+            return false;
+
+        var end = raw.Length;
+        var exponentIndex = raw.IndexOf('e');
+        if (exponentIndex < 0)
+            exponentIndex = raw.IndexOf('E');
+        var significandEnd = exponentIndex >= 0 ? exponentIndex : end;
+        long exponent = 0;
+        if (exponentIndex >= 0 && !TryParseExponent(raw, exponentIndex + 1, out exponent))
+            return false;
+
+        var significand = raw.Substring(0, significandEnd);
+        var negative = significand[0] == '-';
+        var digitsStart = negative ? 1 : 0;
+        var decimalIndex = significand.IndexOf('.');
+        var fractionLength = decimalIndex >= 0 ? significand.Length - decimalIndex - 1 : 0;
+        var digitsBuilder = new System.Text.StringBuilder();
+        if (decimalIndex >= 0)
+        {
+            digitsBuilder.Append(significand, digitsStart, decimalIndex - digitsStart);
+            digitsBuilder.Append(significand, decimalIndex + 1, significand.Length - decimalIndex - 1);
+        }
+        else
+        {
+            digitsBuilder.Append(significand, digitsStart, significand.Length - digitsStart);
+        }
+        var digits = digitsBuilder.ToString();
+        if (digits.Length == 0)
+            return false;
+
+        try
+        {
+            exponent = checked(exponent - fractionLength);
+            var coefficient = BigInteger.Parse(digits, NumberStyles.None, CultureInfo.InvariantCulture);
+            if (negative)
+                coefficient = -coefficient;
+            while (!coefficient.IsZero && coefficient % 10 == 0)
+            {
+                coefficient /= 10;
+                exponent = checked(exponent + 1);
+            }
+
+            number = new JsonNumber(coefficient, coefficient.IsZero ? 0 : exponent);
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool NumbersEqual(JsonElement left, JsonElement right) =>
+        left.ValueKind == JsonValueKind.Number &&
+        right.ValueKind == JsonValueKind.Number &&
+        TryParseNumber(left.GetRawText(), out var leftNumber) &&
+        TryParseNumber(right.GetRawText(), out var rightNumber) &&
+        leftNumber.CompareTo(rightNumber) == 0;
+
+    private static bool TryParseExponent(string raw, int start, out long exponent)
+    {
+        exponent = 0;
+        if (start >= raw.Length)
+            return false;
+        var negative = raw[start] == '-';
+        var index = negative || raw[start] == '+' ? start + 1 : start;
+        if (index >= raw.Length)
+            return false;
+        ulong value = 0;
+        for (; index < raw.Length; index++)
+        {
+            var digit = raw[index] - '0';
+            if (digit < 0 || digit > 9)
+                return false;
+            if (value > (ulong.MaxValue - (uint)digit) / 10)
+                return false;
+            value = value * 10 + (uint)digit;
+        }
+
+        if (negative)
+        {
+            if (value > 9223372036854775808UL)
+                return false;
+            exponent = value == 9223372036854775808UL ? long.MinValue : -(long)value;
+        }
+        else
+        {
+            if (value > long.MaxValue)
+                return false;
+            exponent = (long)value;
+        }
+        return true;
+    }
+
+    private static string CanonicalizeNumber(string raw)
+    {
+        if (!TryParseNumber(raw, out var number))
+            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.MalformedBaseline, "The JSON Schema contains an invalid number."));
+        return number.ToCanonicalString();
+    }
+
+    private static void WriteValue(JsonElement element, System.Text.StringBuilder builder)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                builder.Append('{');
+                var properties = element.EnumerateObject().OrderBy(static property => property.Name, StringComparer.Ordinal).ToList();
+                for (var index = 0; index < properties.Count; index++)
+                {
+                    if (index > 0)
+                        builder.Append(',');
+                    builder.Append(JsonSerializer.Serialize(properties[index].Name));
+                    builder.Append(':');
+                    WriteValue(properties[index].Value, builder);
+                }
+                builder.Append('}');
+                break;
+            case JsonValueKind.Array:
+                builder.Append('[');
+                var items = element.EnumerateArray().ToList();
+                for (var index = 0; index < items.Count; index++)
+                {
+                    if (index > 0)
+                        builder.Append(',');
+                    WriteValue(items[index], builder);
+                }
+                builder.Append(']');
+                break;
+            case JsonValueKind.String:
+                builder.Append(JsonSerializer.Serialize(element.GetString()));
+                break;
+            case JsonValueKind.Number:
+                builder.Append(CanonicalizeNumber(element.GetRawText()));
+                break;
+            case JsonValueKind.True:
+                builder.Append("true");
+                break;
+            case JsonValueKind.False:
+                builder.Append("false");
+                break;
+            case JsonValueKind.Null:
+                builder.Append("null");
+                break;
+            default:
+                throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.MalformedBaseline, "The JSON value contains an unsupported token."));
+        }
+    }
+
+    internal readonly struct JsonNumber
+    {
+        internal JsonNumber(BigInteger coefficient, long exponent)
+        {
+            Coefficient = coefficient;
+            Exponent = exponent;
+        }
+
+        internal BigInteger Coefficient { get; }
+        internal long Exponent { get; }
+        internal bool IsNegative => Coefficient.Sign < 0;
+        internal bool IsInteger => Coefficient.IsZero || Exponent >= 0;
+
+        internal int CompareTo(JsonNumber other)
+        {
+            if (Coefficient.IsZero || other.Coefficient.IsZero)
+                return Coefficient.IsZero ? (other.Coefficient.IsZero ? 0 : -other.Coefficient.Sign) : Coefficient.Sign;
+            if (IsNegative != other.IsNegative)
+                return IsNegative ? -1 : 1;
+
+            var result = CompareMagnitude(this, other);
+            return IsNegative ? -result : result;
+        }
+
+        internal string ToCanonicalString()
+        {
+            if (Coefficient.IsZero)
+                return "0";
+            var prefix = IsNegative ? "-" : string.Empty;
+            var digits = BigInteger.Abs(Coefficient).ToString(CultureInfo.InvariantCulture);
+            return prefix + digits + (Exponent == 0 ? string.Empty : "e" + Exponent.ToString(CultureInfo.InvariantCulture));
+        }
+
+        private static int CompareMagnitude(JsonNumber left, JsonNumber right)
+        {
+            var leftDigits = BigInteger.Abs(left.Coefficient).ToString(CultureInfo.InvariantCulture).Length;
+            var rightDigits = BigInteger.Abs(right.Coefficient).ToString(CultureInfo.InvariantCulture).Length;
+            var leftMagnitude = leftDigits + left.Exponent;
+            var rightMagnitude = rightDigits + right.Exponent;
+            if (leftMagnitude != rightMagnitude)
+                return leftMagnitude > rightMagnitude ? 1 : -1;
+
+            var leftValue = BigInteger.Abs(left.Coefficient);
+            var rightValue = BigInteger.Abs(right.Coefficient);
+            if (left.Exponent > right.Exponent)
+                leftValue *= BigInteger.Pow(10, checked((int)(left.Exponent - right.Exponent)));
+            else if (right.Exponent > left.Exponent)
+                rightValue *= BigInteger.Pow(10, checked((int)(right.Exponent - left.Exponent)));
+            return leftValue.CompareTo(rightValue);
+        }
     }
 }

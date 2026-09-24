@@ -43,6 +43,7 @@ Malformed schemas and unknown or ambiguous schema semantics fail closed with an 
 - [Capture and verification workflow](docs/WORKFLOW.md)
 - [Compatibility categories and examples](docs/COMPATIBILITY.md)
 - [Baseline format and versioning](docs/BASELINE.md)
+- [JSON Schema support matrix](docs/JSON-SCHEMA-SUPPORT.md)
 - [Development and validation](docs/DEV.md)
 
 ## Privacy

@@ -21,6 +21,8 @@ The verifier compares contracts by tool identity. It does not infer renames: a r
 | Description changed | Risky | “Search orders” becomes “Search invoices”; model selection behavior may change. |
 | Approval/safety metadata changed | Risky or Breaking | An explicit approval-required wrapper is added or removed. |
 | Unknown schema semantics | Risky and unsupported | A vendor keyword or composition changes in a way the package cannot prove safe. |
+| Reference/definition change | Risky and unsupported | A `$ref`, `$defs`, or `definitions` target or sibling changes. |
+
+The complete accepted keyword and value-shape surface is the [JSON Schema support matrix](JSON-SCHEMA-SUPPORT.md). Numeric comparisons use JSON data-model equality, so `1`, `1.0`, and `1e0` are representation-equivalent in enums and numeric constraints.
 
 `Informational` is reserved for a future non-compatibility note; current structural differences are never downgraded to clean merely because they are unfamiliar. A `Breaking` change is never accepted by `Accept` without the separate `AcceptWithBreakingReview` call.
-

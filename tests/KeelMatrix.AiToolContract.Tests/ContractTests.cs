@@ -121,6 +121,127 @@ public sealed class ContractTests
     }
 
     [Fact]
+    public void SupportedKeywordMatrixCoversHappyAndFailClosedPaths()
+    {
+        foreach (var definition in SchemaKeywordMatrix.All)
+        {
+            var valid = SchemaWithKeyword(definition.Keyword, definition.ValidValueJson);
+            var capture = CaptureWithLimits(valid, AiToolContractLimits.Default);
+            Assert.True(capture.Succeeded, definition.Keyword + " did not accept its matrix happy path: " + capture.Diagnostic?.Message);
+
+            var serialized = AiToolContractJson.Serialize(capture.Baseline!);
+            var parsed = AiToolContractJson.Parse(serialized);
+            Assert.Single(parsed.Tools);
+
+            var changed = SchemaWithKeyword(definition.Keyword, definition.ChangedValueJson);
+            var diff = AiToolContractVerifier.Compare(BaselineWithInput(valid), BaselineWithInput(changed));
+            Assert.False(diff.IsClean, definition.Keyword + " change unexpectedly produced a clean result.");
+            if (definition.ChangeHandling == SchemaKeywordChangeHandling.Unsupported)
+                Assert.Contains(diff.Changes, static change => change.Kind == AiToolChangeKind.Unsupported);
+        }
+    }
+
+    [Fact]
+    public void SupportedKeywordMatrixMalformedShapesFailClosed()
+    {
+        foreach (var definition in SchemaKeywordMatrix.All)
+        {
+            var malformed = SchemaWithKeyword(definition.Keyword, definition.MalformedValueJson);
+            var capture = CaptureWithLimits(malformed, AiToolContractLimits.Default);
+            Assert.False(capture.Succeeded, definition.Keyword + " accepted a malformed matrix shape.");
+
+            var json = Envelope(malformed);
+            var exception = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse(json));
+            Assert.Contains(exception.Diagnostic.Kind, new[]
+            {
+                AiToolDiagnosticKind.MalformedBaseline,
+                AiToolDiagnosticKind.UnsupportedClassification
+            });
+        }
+    }
+
+    [Theory]
+    [InlineData("allOf")]
+    [InlineData("anyOf")]
+    [InlineData("oneOf")]
+    public void EmptyApplicatorArraysFailClosed(string keyword)
+    {
+        var schema = SchemaWithKeyword(keyword, "[]");
+        var capture = CaptureWithLimits(schema, AiToolContractLimits.Default);
+        Assert.False(capture.Succeeded);
+        Assert.Equal(AiToolDiagnosticKind.MalformedBaseline, capture.Diagnostic!.Kind);
+
+        var exception = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse(Envelope(schema)));
+        Assert.Equal(AiToolDiagnosticKind.MalformedBaseline, exception.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void UnknownSchemaKeywordFailsClosedAtNestedDepth()
+    {
+        var schema = "{\"properties\":{\"nested\":{\"type\":\"string\",\"x-unknown\":true}}}";
+        var capture = CaptureWithLimits(schema, AiToolContractLimits.Default);
+        Assert.False(capture.Succeeded);
+        Assert.Equal(AiToolDiagnosticKind.UnsupportedClassification, capture.Diagnostic!.Kind);
+
+        var exception = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse(Envelope(schema)));
+        Assert.Equal(AiToolDiagnosticKind.UnsupportedClassification, exception.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void UnknownV1EnvelopeAndToolMembersAreRejected()
+    {
+        var unknownEnvelope = "{\"schemaVersion\":1,\"tools\":[],\"unknown\":true}";
+        var unknownTool = "{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"inputSchema\":{\"type\":\"object\"},\"returnSchema\":null,\"requiresApproval\":false,\"unknown\":true}]}";
+
+        Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse(unknownEnvelope));
+        Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse(unknownTool));
+    }
+
+    [Fact]
+    public void NumericLexicalDifferencesAreEquivalentAcrossEnumsAndBounds()
+    {
+        var baseline = Capture("{\"type\":\"object\",\"properties\":{\"value\":{\"enum\":[1,\"one\"],\"minimum\":1,\"maximum\":10}}}");
+        var candidate = Capture("{\"type\":\"object\",\"properties\":{\"value\":{\"enum\":[1.0,\"one\"],\"minimum\":1.0,\"maximum\":10.0}}}");
+
+        Assert.True(AiToolContractVerifier.Compare(baseline, candidate).IsClean);
+        Assert.Equal(AiToolContractJson.Serialize(baseline), AiToolContractJson.Serialize(candidate));
+    }
+
+    [Fact]
+    public void RefChangeBlocksEveryAcceptancePathWhenCombinedWithClassifiedSchemaChanges()
+    {
+        var candidates = new[]
+        {
+            "{\"$ref\":\"#/$defs/Other\",\"$defs\":{\"Order\":{\"type\":\"object\"}},\"type\":\"array\"}",
+            "{\"$ref\":\"#/$defs/Other\",\"$defs\":{\"Order\":{\"type\":\"object\"}},\"enum\":[\"one\",\"two\"]}",
+            "{\"$ref\":\"#/$defs/Other\",\"$defs\":{\"Order\":{\"type\":\"object\"}},\"minimum\":2}",
+            "{\"$ref\":\"#/$defs/Other\",\"$defs\":{\"Order\":{\"type\":\"object\"}},\"properties\":{\"extra\":{\"type\":\"string\"}}}",
+            "{\"$ref\":\"#/$defs/Other\",\"$defs\":{\"Order\":{\"type\":\"object\"}},\"type\":[\"string\",\"null\"],\"nullable\":true}",
+        };
+        var baseline = BaselineWithInput("{\"$ref\":\"#/$defs/Order\",\"$defs\":{\"Order\":{\"type\":\"object\"}},\"type\":\"object\"}");
+
+        foreach (var candidateSchema in candidates)
+        {
+            var diff = AiToolContractVerifier.Compare(baseline, BaselineWithInput(candidateSchema));
+            Assert.Contains(diff.Changes, static change => change.Kind == AiToolChangeKind.Unsupported);
+            Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Accept(baseline, diff));
+            Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.AcceptWithBreakingReview(baseline, diff));
+        }
+    }
+
+    [Fact]
+    public void RefSiblingChangeBlocksAcceptanceEvenWhenTheTargetIsUnchanged()
+    {
+        var baseline = BaselineWithInput("{\"$ref\":\"#/$defs/Order\",\"$defs\":{\"Order\":{\"type\":\"object\"}}}");
+        var candidate = BaselineWithInput("{\"$ref\":\"#/$defs/Order\",\"$defs\":{\"Order\":{\"type\":\"object\"}},\"type\":\"object\"}");
+
+        var diff = AiToolContractVerifier.Compare(baseline, candidate);
+
+        Assert.Contains(diff.Changes, static change => change.Kind == AiToolChangeKind.Unsupported);
+        Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.AcceptWithBreakingReview(candidate, diff));
+    }
+
+    [Fact]
     public void ReferenceAndDefinitionsShapeIsStable()
     {
         var left = Capture("{\"$ref\":\"#/$defs/Order\",\"$defs\":{\"Order\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}}}");
@@ -389,6 +510,12 @@ public sealed class ContractTests
 
     private static AiToolContractCaptureResult CaptureWithLimits(string inputSchema, AiToolContractLimits limits) =>
         AiToolContractCapture.Capture(new AITool[] { Declaration("tool", inputSchema) }, limits);
+
+    private static string SchemaWithKeyword(string keyword, string valueJson) =>
+        "{\"" + keyword + "\":" + valueJson + "}";
+
+    private static string Envelope(string schema) =>
+        "{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"inputSchema\":" + schema + ",\"returnSchema\":null,\"requiresApproval\":false}]}";
 
     private static AiToolContractBaseline CaptureTwo(string first, string second) =>
         AiToolContractCapture.Capture(new AITool[]
