@@ -67,6 +67,7 @@ public sealed class ContractTests
         {
             "{\"allOf\":[{\"type\":\"string\"}]}",
             "{\"$defs\":{\"Order\":{\"type\":\"object\"}}}",
+            "{\"definitions\":{\"Order\":{\"type\":\"object\"}}}",
             "{\"additionalProperties\":false}",
             "{\"nullable\":true}",
             "{\"x-vendor-policy\":\"review\"}"
