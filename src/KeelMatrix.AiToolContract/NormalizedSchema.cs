@@ -51,23 +51,41 @@ internal sealed class NormalizedSchema
         MaxItems = maxItems;
     }
 
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Changed)]
     internal string? Reference { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Changed)]
     internal string? Description { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Changed)]
     internal bool HasDefault { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Changed)]
     internal NormalizedJsonValue? DefaultValue { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Changed)]
     internal string? Format { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Expanded, SchemaTransitionDirection.Narrowed, SchemaTransitionDirection.Changed)]
     internal IReadOnlyList<string> Types { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.OptionalPropertyAdded, SchemaTransitionDirection.RequiredPropertyAdded, SchemaTransitionDirection.Removed)]
     internal IReadOnlyDictionary<string, NormalizedSchema> Properties { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Changed)]
     internal IReadOnlyList<string> Required { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Expanded, SchemaTransitionDirection.Narrowed, SchemaTransitionDirection.Changed)]
     internal IReadOnlyList<NormalizedJsonValue>? EnumValues { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed)]
     internal NormalizedSchema? Items { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Narrowed, SchemaTransitionDirection.Widened)]
     internal JsonNumber? Minimum { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Narrowed, SchemaTransitionDirection.Widened)]
     internal JsonNumber? Maximum { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Narrowed, SchemaTransitionDirection.Widened)]
     internal JsonNumber? ExclusiveMinimum { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Narrowed, SchemaTransitionDirection.Widened)]
     internal JsonNumber? ExclusiveMaximum { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Narrowed, SchemaTransitionDirection.Widened)]
     internal JsonNumber? MinLength { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Narrowed, SchemaTransitionDirection.Widened)]
     internal JsonNumber? MaxLength { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Narrowed, SchemaTransitionDirection.Widened)]
     internal JsonNumber? MinItems { get; }
+    [SchemaTransitionModelProperty(SchemaTransitionDirection.Added, SchemaTransitionDirection.Removed, SchemaTransitionDirection.Narrowed, SchemaTransitionDirection.Widened)]
     internal JsonNumber? MaxItems { get; }
 
     internal string ToCanonicalJson()

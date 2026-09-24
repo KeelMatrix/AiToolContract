@@ -288,26 +288,36 @@ public sealed class ContractTests
         Assert.Same(candidate, AiToolContractVerifier.AcceptWithBreakingReview(candidate, diff));
     }
 
-    [Theory]
-    [MemberData(nameof(TransitionMatrix))]
-    public void ClosedModelTransitionMatrixClassifiesEveryEntry(string name, string oldSchema, string newSchema, bool returnSchema, AiToolChangeKind expectedKind, AiToolCompatibility expectedCompatibility, bool unsupported)
+    [Fact]
+    public void ModelTransitionRuleTableMatchesTheClosedNormalizedModel()
     {
-        var oldBaseline = returnSchema ? Capture("{\"type\":\"object\"}", oldSchema) : Capture(oldSchema);
-        var newBaseline = returnSchema ? Capture("{\"type\":\"object\"}", newSchema) : Capture(newSchema);
-        var diff = AiToolContractVerifier.Compare(oldBaseline, newBaseline);
+        Assert.NotEmpty(SchemaTransitionRules.ModelPropertyNames);
+        Assert.NotEmpty(SchemaTransitionRules.Rules);
+        Assert.Empty(SchemaTransitionRules.CoverageFailures);
+        Assert.Equal(SchemaTransitionRules.Rules.Count * 4, ModelDerivedTransitionMatrix.Count());
+    }
 
-        Assert.False(diff.IsClean, name);
-        Assert.Equal(expectedCompatibility, diff.Compatibility);
-        Assert.Single(diff.Changes);
-        Assert.Equal(expectedKind, diff.Changes[0].Kind);
-        Assert.Equal(expectedCompatibility, diff.Changes[0].Compatibility);
-        if (unsupported)
+    [Theory]
+    [MemberData(nameof(ModelDerivedTransitionMatrix))]
+    public void ModelDerivedTransitionMatrixClassifiesEveryRuleAndDepth(GeneratedTransitionCase testCase)
+    {
+        var schemas = SchemaTransitionSchemaGenerator.Build(testCase.Rule, testCase.Depth);
+        var oldBaseline = testCase.ReturnSchema ? Capture("{\"type\":\"object\"}", schemas.OldSchema) : Capture(schemas.OldSchema);
+        var newBaseline = testCase.ReturnSchema ? Capture("{\"type\":\"object\"}", schemas.NewSchema) : Capture(schemas.NewSchema);
+        var diff = AiToolContractVerifier.Compare(oldBaseline, newBaseline);
+        var expected = testCase.ReturnSchema ? testCase.Rule.Return : testCase.Rule.Input;
+
+        Assert.False(diff.IsClean, testCase.Name);
+        if (expected.Unsupported)
         {
             AssertUnsupported(diff);
             Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Accept(newBaseline, diff));
             Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.AcceptWithBreakingReview(newBaseline, diff));
+            return;
         }
-        else if (expectedCompatibility == AiToolCompatibility.Breaking)
+
+        Assert.Contains(diff.Changes, change => change.Kind == expected.Kind && change.Compatibility == expected.Compatibility);
+        if (expected.Compatibility == AiToolCompatibility.Breaking)
         {
             Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Accept(newBaseline, diff));
             Assert.Same(newBaseline, AiToolContractVerifier.AcceptWithBreakingReview(newBaseline, diff));
@@ -316,6 +326,21 @@ public sealed class ContractTests
         {
             Assert.Same(newBaseline, AiToolContractVerifier.Accept(newBaseline, diff));
             Assert.Same(newBaseline, AiToolContractVerifier.AcceptWithBreakingReview(newBaseline, diff));
+        }
+    }
+
+    public static IEnumerable<object[]> ModelDerivedTransitionMatrix
+    {
+        get
+        {
+            foreach (var rule in SchemaTransitionRules.Rules)
+            {
+                foreach (var returnSchema in new[] { false, true })
+                {
+                    yield return new object[] { new GeneratedTransitionCase(rule, returnSchema, 0) };
+                    yield return new object[] { new GeneratedTransitionCase(rule, returnSchema, 2) };
+                }
+            }
         }
     }
 
@@ -351,11 +376,13 @@ public sealed class ContractTests
     {
         var observedKinds = new HashSet<AiToolChangeKind>();
         var observedCompatibility = new HashSet<AiToolCompatibility>();
-        foreach (var row in TransitionMatrix)
+        foreach (var row in ModelDerivedTransitionMatrix)
         {
-            var oldSchema = (string)row[1];
-            var newSchema = (string)row[2];
-            var returnSchema = (bool)row[3];
+            var testCase = (GeneratedTransitionCase)row[0];
+            var schemas = SchemaTransitionSchemaGenerator.Build(testCase.Rule, testCase.Depth);
+            var oldSchema = schemas.OldSchema;
+            var newSchema = schemas.NewSchema;
+            var returnSchema = testCase.ReturnSchema;
             var oldBaseline = returnSchema ? Capture("{\"type\":\"object\"}", oldSchema) : Capture(oldSchema);
             var newBaseline = returnSchema ? Capture("{\"type\":\"object\"}", newSchema) : Capture(newSchema);
             var diff = AiToolContractVerifier.Compare(oldBaseline, newBaseline);
@@ -432,95 +459,106 @@ public sealed class ContractTests
         Assert.Same(absent, AiToolContractVerifier.AcceptWithBreakingReview(absent, removed));
     }
 
-    public static IEnumerable<object[]> TransitionMatrix
+    public sealed class GeneratedTransitionCase
     {
-        get
+        internal GeneratedTransitionCase(SchemaTransitionRule rule, bool returnSchema, int depth)
         {
-            yield return Matrix("reference-added", "{}", "{\"$ref\":\"#/$defs/Order\"}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("reference-removed", "{\"$ref\":\"#/$defs/Order\"}", "{}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("reference-target-changed", "{\"$ref\":\"#/$defs/Order\"}", "{\"$ref\":\"#/$defs/Invoice\"}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("return-reference-added", "{}", "{\"$ref\":\"#/$defs/Order\"}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("return-reference-removed", "{\"$ref\":\"#/$defs/Order\"}", "{}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("description-added", "{}", "{\"description\":\"A value\"}", false, AiToolChangeKind.DescriptionChanged, AiToolCompatibility.Risky, false);
-            yield return Matrix("description-removed", "{\"description\":\"A value\"}", "{}", false, AiToolChangeKind.DescriptionChanged, AiToolCompatibility.Risky, false);
-            yield return Matrix("return-description-added", "{}", "{\"description\":\"A value\"}", true, AiToolChangeKind.DescriptionChanged, AiToolCompatibility.Risky, false);
-            yield return Matrix("return-description-removed", "{\"description\":\"A value\"}", "{}", true, AiToolChangeKind.DescriptionChanged, AiToolCompatibility.Risky, false);
-            yield return Matrix("default-added", "{}", "{\"default\":null}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("default-removed", "{\"default\":null}", "{}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("return-default-added", "{}", "{\"default\":null}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("return-default-removed", "{\"default\":null}", "{}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("format-added", "{}", "{\"format\":\"date-time\"}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("format-removed", "{\"format\":\"date-time\"}", "{}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("return-format-added", "{}", "{\"format\":\"date-time\"}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("return-format-removed", "{\"format\":\"date-time\"}", "{}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-
-            yield return Matrix("type-added", "{}", "{\"type\":\"string\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
-            yield return Matrix("type-removed", "{\"type\":\"string\"}", "{}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, false);
-            yield return Matrix("type-union-widened", "{\"type\":\"string\"}", "{\"type\":[\"string\",\"null\"]}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, false);
-            yield return Matrix("type-union-narrowed", "{\"type\":[\"string\",\"null\"]}", "{\"type\":\"string\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
-            yield return Matrix("type-primitive-to-object", "{\"type\":\"string\"}", "{\"type\":\"object\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
-            yield return Matrix("type-object-to-array", "{\"type\":\"object\"}", "{\"type\":\"array\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
-            yield return Matrix("return-type-added", "{}", "{\"type\":\"string\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
-            yield return Matrix("return-type-removed", "{\"type\":\"string\"}", "{}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
-            yield return Matrix("return-type-primitive-to-object", "{\"type\":\"string\"}", "{\"type\":\"object\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
-            yield return Matrix("return-type-object-to-array", "{\"type\":\"object\"}", "{\"type\":\"array\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
-            yield return Matrix("return-type-union-widened", "{\"type\":\"string\"}", "{\"type\":[\"string\",\"null\"]}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
-            yield return Matrix("return-type-union-narrowed", "{\"type\":[\"string\",\"null\"]}", "{\"type\":\"string\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
-
-            yield return Matrix("enum-added", "{\"type\":\"string\"}", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", false, AiToolChangeKind.EnumNarrowed, AiToolCompatibility.Breaking, false);
-            yield return Matrix("enum-removed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\"}", false, AiToolChangeKind.EnumExpanded, AiToolCompatibility.Additive, false);
-            yield return Matrix("enum-expanded", "{\"type\":\"string\",\"enum\":[\"open\"]}", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", false, AiToolChangeKind.EnumExpanded, AiToolCompatibility.Additive, false);
-            yield return Matrix("enum-narrowed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\",\"enum\":[\"open\"]}", false, AiToolChangeKind.EnumNarrowed, AiToolCompatibility.Breaking, false);
-            yield return Matrix("return-enum-expanded", "{\"type\":\"string\",\"enum\":[\"open\"]}", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
-            yield return Matrix("return-enum-narrowed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\",\"enum\":[\"open\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
-            yield return Matrix("return-enum-added", "{\"type\":\"string\"}", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
-            yield return Matrix("return-enum-removed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\"}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
-            yield return Matrix("enum-mixed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\",\"enum\":[\"open\",\"new\"]}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-
-            yield return Matrix("items-added", "{\"type\":\"array\"}", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("items-removed", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\"}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("return-items-added", "{\"type\":\"array\"}", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("return-items-removed", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\"}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
-            yield return Matrix("nested-items-union-widened", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\",\"items\":{\"type\":[\"string\",\"null\"]}}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, false);
-
-            yield return Matrix("optional-property-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"note\":{\"type\":\"string\"}}}", false, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, false);
-            yield return Matrix("required-property-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}", false, AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, false);
-            yield return Matrix("property-removed", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}}}", "{\"type\":\"object\"}", false, AiToolChangeKind.ParameterRemoved, AiToolCompatibility.Breaking, false);
-            yield return Matrix("nested-property-type-changed", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}}}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"integer\"}}}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
-            yield return Matrix("return-optional-property-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
-            yield return Matrix("return-required-property-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}},\"required\":[\"result\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
-            yield return Matrix("return-property-removed", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", "{\"type\":\"object\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
-
-            yield return Matrix("required-declared-added", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}}}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}", false, AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, false);
-            yield return Matrix("required-declared-removed", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}}}", false, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, false);
-            yield return Matrix("required-undeclared-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"required\":[\"ghost\"]}", false, AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, false);
-            yield return Matrix("required-undeclared-removed", "{\"type\":\"object\",\"required\":[\"ghost\"]}", "{\"type\":\"object\"}", false, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, false);
-            yield return Matrix("return-required-declared-added", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}},\"required\":[\"result\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
-            yield return Matrix("return-required-declared-removed", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}},\"required\":[\"result\"]}", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
-            yield return Matrix("return-required-undeclared-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"required\":[\"ghost\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
-            yield return Matrix("return-required-undeclared-removed", "{\"type\":\"object\",\"required\":[\"ghost\"]}", "{\"type\":\"object\"}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
-
-            foreach (var memberName in new[] { "minimum", "exclusiveMinimum", "minLength", "minItems", "maximum", "exclusiveMaximum", "maxLength", "maxItems" })
-            {
-                var lowerBound = memberName is "minimum" or "exclusiveMinimum" or "minLength" or "minItems";
-                var narrowOld = lowerBound ? "1" : "2";
-                var narrowNew = lowerBound ? "2" : "1";
-                yield return Matrix("input-" + memberName + "-added", "{}", SchemaWithMember(memberName, "1"), false, AiToolChangeKind.ConstraintNarrowed, AiToolCompatibility.Breaking, false);
-                yield return Matrix("input-" + memberName + "-removed", SchemaWithMember(memberName, "1"), "{}", false, AiToolChangeKind.ConstraintExpanded, AiToolCompatibility.Additive, false);
-                yield return Matrix("input-" + memberName + "-narrowed", SchemaWithMember(memberName, narrowOld), SchemaWithMember(memberName, narrowNew), false, AiToolChangeKind.ConstraintNarrowed, AiToolCompatibility.Breaking, false);
-                yield return Matrix("input-" + memberName + "-widened", SchemaWithMember(memberName, narrowNew), SchemaWithMember(memberName, narrowOld), false, AiToolChangeKind.ConstraintExpanded, AiToolCompatibility.Additive, false);
-                yield return Matrix("return-" + memberName + "-added", "{}", SchemaWithMember(memberName, "1"), true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
-                yield return Matrix("return-" + memberName + "-removed", SchemaWithMember(memberName, "1"), "{}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
-                yield return Matrix("return-" + memberName + "-narrowed", SchemaWithMember(memberName, narrowOld), SchemaWithMember(memberName, narrowNew), true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
-                yield return Matrix("return-" + memberName + "-widened", SchemaWithMember(memberName, narrowNew), SchemaWithMember(memberName, narrowOld), true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
-            }
+            Rule = rule;
+            ReturnSchema = returnSchema;
+            Depth = depth;
         }
+
+        internal SchemaTransitionRule Rule { get; }
+        internal bool ReturnSchema { get; }
+        internal int Depth { get; }
+        internal string Name => "matrix-" + (ReturnSchema ? "return" : "input") + "-depth" + Depth + "-" + Rule.PropertyName + "-" + Rule.Direction;
+        public override string ToString() => Name;
     }
 
-    private static object[] Matrix(string name, string oldSchema, string newSchema, bool returnSchema, AiToolChangeKind kind, AiToolCompatibility compatibility, bool unsupported) =>
-        new object[] { name, oldSchema, newSchema, returnSchema, kind, compatibility, unsupported };
+    private static class SchemaTransitionSchemaGenerator
+    {
+        internal static (string OldSchema, string NewSchema) Build(SchemaTransitionRule rule, int depth)
+        {
+            var target = BuildTarget(rule.PropertyName, rule.Direction);
+            return (Wrap(target.OldSchema, depth), Wrap(target.NewSchema, depth));
+        }
 
-    private static string SchemaWithMember(string name, string value) => "{\"" + name + "\":" + value + "}";
+        private static (string OldSchema, string NewSchema) BuildTarget(string propertyName, SchemaTransitionDirection direction)
+        {
+            if (propertyName == nameof(NormalizedSchema.Reference))
+                return Pair(direction, "{}", "{\"$ref\":\"#/$defs/Order\"}", "{\"$ref\":\"#/$defs/Order\"}", "{\"$ref\":\"#/$defs/Invoice\"}");
+            if (propertyName == nameof(NormalizedSchema.Description))
+                return Pair(direction, "{}", "{\"description\":\"A value\"}", "{\"description\":\"Before\"}", "{\"description\":\"After\"}");
+            if (propertyName == nameof(NormalizedSchema.HasDefault) || propertyName == nameof(NormalizedSchema.DefaultValue))
+                return Pair(direction, "{}", "{\"default\":null}", "{\"default\":1}", "{\"default\":2}");
+            if (propertyName == nameof(NormalizedSchema.Format))
+                return Pair(direction, "{}", "{\"format\":\"date-time\"}", "{\"format\":\"date-time\"}", "{\"format\":\"uri\"}");
+            if (propertyName == nameof(NormalizedSchema.Types))
+                return direction switch
+                {
+                    SchemaTransitionDirection.Added => ("{}", "{\"type\":\"string\"}"),
+                    SchemaTransitionDirection.Removed => ("{\"type\":\"string\"}", "{}"),
+                    SchemaTransitionDirection.Expanded => ("{\"type\":\"string\"}", "{\"type\":[\"string\",\"null\"]}"),
+                    SchemaTransitionDirection.Narrowed => ("{\"type\":[\"string\",\"null\"]}", "{\"type\":\"string\"}"),
+                    _ => ("{\"type\":\"string\"}", "{\"type\":\"integer\"}")
+                };
+            if (propertyName == nameof(NormalizedSchema.Properties))
+                return direction switch
+                {
+                    SchemaTransitionDirection.OptionalPropertyAdded => ("{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"note\":{\"type\":\"string\"}}}"),
+                    SchemaTransitionDirection.RequiredPropertyAdded => ("{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}"),
+                    _ => ("{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", "{\"type\":\"object\"}")
+                };
+            if (propertyName == nameof(NormalizedSchema.Required))
+                return direction switch
+                {
+                    SchemaTransitionDirection.Added => ("{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}", "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}},\"required\":[\"value\"]}"),
+                    SchemaTransitionDirection.Removed => ("{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}},\"required\":[\"value\"]}", "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}"),
+                    _ => ("{\"type\":\"object\",\"required\":[\"old\"]}", "{\"type\":\"object\",\"required\":[\"new\"]}")
+                };
+            if (propertyName == nameof(NormalizedSchema.EnumValues))
+                return direction switch
+                {
+                    SchemaTransitionDirection.Added => ("{\"type\":\"string\"}", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}"),
+                    SchemaTransitionDirection.Removed => ("{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\"}"),
+                    SchemaTransitionDirection.Expanded => ("{\"type\":\"string\",\"enum\":[\"open\"]}", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}"),
+                    SchemaTransitionDirection.Narrowed => ("{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\",\"enum\":[\"open\"]}"),
+                    _ => ("{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\",\"enum\":[\"open\",\"new\"]}")
+                };
+            if (propertyName == nameof(NormalizedSchema.Items))
+                return Pair(direction, "{\"type\":\"array\"}", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "", "");
+
+            var lowerBound = propertyName is nameof(NormalizedSchema.Minimum) or nameof(NormalizedSchema.ExclusiveMinimum) or nameof(NormalizedSchema.MinLength) or nameof(NormalizedSchema.MinItems);
+            var keyword = propertyName switch
+            {
+                nameof(NormalizedSchema.Minimum) => "minimum",
+                nameof(NormalizedSchema.Maximum) => "maximum",
+                nameof(NormalizedSchema.ExclusiveMinimum) => "exclusiveMinimum",
+                nameof(NormalizedSchema.ExclusiveMaximum) => "exclusiveMaximum",
+                nameof(NormalizedSchema.MinLength) => "minLength",
+                nameof(NormalizedSchema.MaxLength) => "maxLength",
+                nameof(NormalizedSchema.MinItems) => "minItems",
+                _ => "maxItems"
+            };
+            if (direction == SchemaTransitionDirection.Added)
+                return ("{}", "{\"" + keyword + "\":1}");
+            if (direction == SchemaTransitionDirection.Removed)
+                return ("{\"" + keyword + "\":1}", "{}");
+            if (direction == SchemaTransitionDirection.Narrowed)
+                return ("{\"" + keyword + "\":" + (lowerBound ? "1" : "2") + "}", "{\"" + keyword + "\":" + (lowerBound ? "2" : "1") + "}");
+            return ("{\"" + keyword + "\":" + (lowerBound ? "2" : "1") + "}", "{\"" + keyword + "\":" + (lowerBound ? "1" : "2") + "}");
+        }
+
+        private static (string OldSchema, string NewSchema) Pair(SchemaTransitionDirection direction, string addedOld, string addedNew, string changedOld, string changedNew) =>
+            direction == SchemaTransitionDirection.Added ? (addedOld, addedNew) : direction == SchemaTransitionDirection.Removed ? (addedNew, addedOld) : (changedOld, changedNew);
+
+        private static string Wrap(string schema, int depth)
+        {
+            for (var level = 0; level < depth; level++)
+                schema = "{\"type\":\"object\",\"properties\":{\"nested" + level + "\":" + schema + "}}";
+            return schema;
+        }
+    }
 
     private static AIFunction Function(string name, string description = "A tool") =>
         AIFunctionFactory.Create((string value) => value, new AIFunctionFactoryOptions { Name = name, Description = description });

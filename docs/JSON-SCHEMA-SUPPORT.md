@@ -4,6 +4,8 @@ This document defines the closed JSON Schema surface accepted by baseline versio
 
 The subset is derived from probes of `AIFunctionFactory` with `Microsoft.Extensions.AI.Abstractions` `10.0.0` and `10.10.0`. The probes cover required and optional parameters, parameter descriptions, defaults, `DateTime`, `Uri`, `Guid`, enums, nullable values, arrays, and nested objects.
 
+Transition coverage is model-derived. The rule table in `SchemaTransitionRules` is keyed by every property of the closed `NormalizedSchema` model and by its supported transition directions; the test suite reflects the model and asserts equality with both rule-table key sets. A missing model property, direction, or rule is reported as an unsupported classification rather than a clean result. The generator exercises every rule at the root and at depth two for both input and return schemas, so nested property, enum, constraint, type, and item transitions cannot be omitted from coverage by forgetting a hand-written matrix row.
+
 ## Closed keyword surface
 
 | Keyword | Normalized value | Comparison behavior |

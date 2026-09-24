@@ -19,6 +19,9 @@ public static class AiToolContractVerifier
 
         var changes = new List<AiToolChange>();
         var diagnostics = new List<AiToolContractDiagnostic>();
+        foreach (var failure in SchemaTransitionRules.CoverageFailures)
+            AddUnsupported(changes, diagnostics, effectiveLimits, "$", "$.normalizedModel", "The normalized schema model is not fully covered by explicit transition rules: " + failure);
+
         var oldTools = baseline.Tools.ToDictionary(static tool => tool.Name, StringComparer.Ordinal);
         var newTools = candidate.Tools.ToDictionary(static tool => tool.Name, StringComparer.Ordinal);
 
@@ -103,6 +106,12 @@ public static class AiToolContractVerifier
 
     private static void CompareSchema(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
     {
+        foreach (var transition in SchemaTransitionRules.FindTransitions(oldSchema, newSchema))
+        {
+            if (!SchemaTransitionRules.TryGetRule(transition.PropertyName, transition.Direction, out var rule) || (input ? rule!.Input : rule!.Return).Unsupported)
+                AddUnsupported(changes, diagnostics, limits, toolName, path + "." + transition.PropertyName, "The normalized schema transition '" + transition.PropertyName + ":" + transition.Direction + "' has no explicit compatibility rule.");
+        }
+
         if (oldSchema.SemanticallyEquals(newSchema))
             return;
 
