@@ -8,6 +8,8 @@ namespace KeelMatrix.AiToolContract.Tests;
 
 public sealed class ContractTests
 {
+    private static readonly string[] CanonicalRequiredNames = { "a", "b" };
+
     [Fact]
     public void CaptureReadsRealAIFunctionMetadataWithoutInvokingIt()
     {
@@ -103,16 +105,35 @@ public sealed class ContractTests
     [Fact]
     public void CanonicalizationOrderStabilityPropertyHolds()
     {
-        var schemas = new[]
+        var propertyMembers = new Dictionary<string, string>
         {
-            "{\"type\":\"object\",\"required\":[\"a\",\"b\"],\"properties\":{\"a\":{\"type\":\"string\"},\"b\":{\"type\":\"integer\"}}}",
-            "{\"properties\":{\"b\":{\"type\":\"integer\"},\"a\":{\"type\":\"string\"}},\"type\":\"object\",\"required\":[\"b\",\"a\"]}",
-            "{\"required\":[\"b\",\"a\"],\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"},\"b\":{\"type\":\"integer\"}}}"
+            ["a"] = "{\"type\":\"string\"}",
+            ["b"] = "{\"type\":\"integer\"}"
         };
+        var rootMembers = new[] { "type", "required", "properties" };
+        var expected = string.Empty;
+        var variants = 0;
 
-        var expected = AiToolContractJson.Serialize(Capture(schemas[0]));
-        foreach (var schema in schemas.Skip(1))
-            Assert.Equal(expected, AiToolContractJson.Serialize(Capture(schema)));
+        foreach (var rootOrder in Permutations(rootMembers))
+            foreach (var propertyOrder in Permutations(propertyMembers.Keys.ToArray()))
+                foreach (var requiredOrder in Permutations(CanonicalRequiredNames))
+                {
+                    var properties = "{" + string.Join(',', propertyOrder.Select(name => "\"" + name + "\":" + propertyMembers[name])) + "}";
+                    var members = new Dictionary<string, string>
+                    {
+                        ["type"] = "\"object\"",
+                        ["required"] = "[\"" + string.Join("\",\"", requiredOrder) + "\"]",
+                        ["properties"] = properties
+                    };
+                    var schema = "{" + string.Join(',', rootOrder.Select(name => "\"" + name + "\":" + members[name])) + "}";
+                    var actual = AiToolContractJson.Serialize(Capture(schema));
+                    if (variants++ == 0)
+                        expected = actual;
+                    else
+                        Assert.Equal(expected, actual);
+                }
+
+        Assert.Equal(24, variants);
     }
 
     [Fact]
@@ -196,7 +217,7 @@ public sealed class ContractTests
         var capture = CaptureWithLimits(schema);
 
         Assert.False(capture.Succeeded);
-        Assert.Contains(capture.Diagnostic!.Kind, new[] { AiToolDiagnosticKind.CaptureFailure, AiToolDiagnosticKind.MalformedBaseline, AiToolDiagnosticKind.UnsupportedClassification });
+        Assert.True(capture.Diagnostic!.Kind is AiToolDiagnosticKind.CaptureFailure or AiToolDiagnosticKind.MalformedBaseline or AiToolDiagnosticKind.UnsupportedClassification);
     }
 
     [Fact]
@@ -267,6 +288,209 @@ public sealed class ContractTests
         Assert.Same(candidate, AiToolContractVerifier.AcceptWithBreakingReview(candidate, diff));
     }
 
+    [Theory]
+    [MemberData(nameof(TransitionMatrix))]
+    public void ClosedModelTransitionMatrixClassifiesEveryEntry(string name, string oldSchema, string newSchema, bool returnSchema, AiToolChangeKind expectedKind, AiToolCompatibility expectedCompatibility, bool unsupported)
+    {
+        var oldBaseline = returnSchema ? Capture("{\"type\":\"object\"}", oldSchema) : Capture(oldSchema);
+        var newBaseline = returnSchema ? Capture("{\"type\":\"object\"}", newSchema) : Capture(newSchema);
+        var diff = AiToolContractVerifier.Compare(oldBaseline, newBaseline);
+
+        Assert.False(diff.IsClean, name);
+        Assert.Equal(expectedCompatibility, diff.Compatibility);
+        Assert.Single(diff.Changes);
+        Assert.Equal(expectedKind, diff.Changes[0].Kind);
+        Assert.Equal(expectedCompatibility, diff.Changes[0].Compatibility);
+        if (unsupported)
+        {
+            AssertUnsupported(diff);
+            Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Accept(newBaseline, diff));
+            Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.AcceptWithBreakingReview(newBaseline, diff));
+        }
+        else if (expectedCompatibility == AiToolCompatibility.Breaking)
+        {
+            Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Accept(newBaseline, diff));
+            Assert.Same(newBaseline, AiToolContractVerifier.AcceptWithBreakingReview(newBaseline, diff));
+        }
+        else
+        {
+            Assert.Same(newBaseline, AiToolContractVerifier.Accept(newBaseline, diff));
+            Assert.Same(newBaseline, AiToolContractVerifier.AcceptWithBreakingReview(newBaseline, diff));
+        }
+    }
+
+    [Fact]
+    public void ToolCatalogMetadataAndAcceptancePathsCoverAddRemoveDescriptionAndApprovalChanges()
+    {
+        var oldCatalog = CaptureCatalog(Function("kept", "Before"), Function("removed"));
+        var addedCatalog = CaptureCatalog(Function("kept", "After"), Function("added"));
+        var descriptionDiff = AiToolContractVerifier.Compare(oldCatalog, addedCatalog);
+
+        Assert.Contains(descriptionDiff.Changes, static change => change.Kind == AiToolChangeKind.ToolRemoved && change.Compatibility == AiToolCompatibility.Breaking);
+        Assert.Contains(descriptionDiff.Changes, static change => change.Kind == AiToolChangeKind.ToolAdded && change.Compatibility == AiToolCompatibility.Additive);
+        Assert.Contains(descriptionDiff.Changes, static change => change.Kind == AiToolChangeKind.DescriptionChanged && change.Compatibility == AiToolCompatibility.Risky);
+        Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Accept(addedCatalog, descriptionDiff));
+        Assert.Same(addedCatalog, AiToolContractVerifier.AcceptWithBreakingReview(addedCatalog, descriptionDiff));
+
+        var plain = Function("approval");
+        var approval = new ApprovalRequiredAIFunction(plain);
+        var plainBaseline = CaptureCatalog(plain);
+        var approvalBaseline = CaptureCatalog(approval);
+        var approvalAdded = AiToolContractVerifier.Compare(plainBaseline, approvalBaseline);
+        Assert.Contains(approvalAdded.Changes, static change => change.Kind == AiToolChangeKind.ApprovalSafetyMetadataChanged && change.Compatibility == AiToolCompatibility.Risky);
+        Assert.Same(approvalBaseline, AiToolContractVerifier.Accept(approvalBaseline, approvalAdded));
+
+        var approvalRemoved = AiToolContractVerifier.Compare(approvalBaseline, plainBaseline);
+        Assert.Contains(approvalRemoved.Changes, static change => change.Kind == AiToolChangeKind.ApprovalSafetyMetadataChanged && change.Compatibility == AiToolCompatibility.Breaking);
+        Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Accept(plainBaseline, approvalRemoved));
+        Assert.Same(plainBaseline, AiToolContractVerifier.AcceptWithBreakingReview(plainBaseline, approvalRemoved));
+    }
+
+    [Fact]
+    public void PublicChangeKindsAndCompatibilityLevelsAreEnumerated()
+    {
+        var observedKinds = new HashSet<AiToolChangeKind>();
+        var observedCompatibility = new HashSet<AiToolCompatibility>();
+        foreach (var row in TransitionMatrix)
+        {
+            var oldSchema = (string)row[1];
+            var newSchema = (string)row[2];
+            var returnSchema = (bool)row[3];
+            var oldBaseline = returnSchema ? Capture("{\"type\":\"object\"}", oldSchema) : Capture(oldSchema);
+            var newBaseline = returnSchema ? Capture("{\"type\":\"object\"}", newSchema) : Capture(newSchema);
+            var diff = AiToolContractVerifier.Compare(oldBaseline, newBaseline);
+            observedKinds.UnionWith(diff.Changes.Select(static change => change.Kind));
+            observedCompatibility.Add(diff.Compatibility);
+        }
+
+        var catalogDiff = AiToolContractVerifier.Compare(CaptureCatalog(Function("old")), CaptureCatalog(Function("new")));
+        observedKinds.UnionWith(catalogDiff.Changes.Select(static change => change.Kind));
+        observedCompatibility.Add(catalogDiff.Compatibility);
+
+        var approval = new ApprovalRequiredAIFunction(Function("approval"));
+        var approvalDiff = AiToolContractVerifier.Compare(CaptureCatalog(Function("approval")), CaptureCatalog(approval));
+        observedKinds.UnionWith(approvalDiff.Changes.Select(static change => change.Kind));
+        observedCompatibility.Add(approvalDiff.Compatibility);
+
+        Assert.True(new HashSet<AiToolChangeKind>(Enum.GetValues<AiToolChangeKind>()).SetEquals(observedKinds), string.Join(", ", Enum.GetValues<AiToolChangeKind>().Except(observedKinds)));
+        var clean = AiToolContractVerifier.Compare(Capture("{}"), Capture("{}"));
+        observedCompatibility.Add(clean.Compatibility);
+        Assert.True(new HashSet<AiToolCompatibility>(Enum.GetValues<AiToolCompatibility>()).SetEquals(observedCompatibility), string.Join(", ", Enum.GetValues<AiToolCompatibility>().Except(observedCompatibility)));
+    }
+
+    [Fact]
+    public void MalformedBaselineVersionsLimitsAndDuplicateIdentitiesFailClosed()
+    {
+        var malformed = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse("not-json"));
+        Assert.Equal(AiToolDiagnosticKind.MalformedBaseline, malformed.Diagnostic.Kind);
+
+        var unsupportedVersion = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse(Envelope("{\"type\":\"object\"}").Replace("\"schemaVersion\":1", "\"schemaVersion\":2", StringComparison.Ordinal)));
+        Assert.Equal(AiToolDiagnosticKind.UnsupportedBaselineVersion, unsupportedVersion.Diagnostic.Kind);
+
+        var duplicate = AiToolContractCapture.Capture(new AITool[] { Function("duplicate"), Function("duplicate") });
+        Assert.False(duplicate.Succeeded);
+        Assert.Equal(AiToolDiagnosticKind.DuplicateToolIdentity, duplicate.Diagnostic!.Kind);
+
+        var catalog = AiToolContractJson.Serialize(CaptureCatalog(Function("one"), Function("two")));
+        var toolLimit = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse(catalog, new AiToolContractLimits { MaxTools = 1 }));
+        Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, toolLimit.Diagnostic.Kind);
+
+        var propertyLimit = CaptureWithLimits("{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"},\"b\":{\"type\":\"string\"}}}", new AiToolContractLimits { MaxProperties = 1 });
+        Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, propertyLimit.Diagnostic!.Kind);
+
+        var changeLimit = Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Compare(Capture("{}"), Capture("{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"},\"b\":{\"type\":\"string\"}}}"), new AiToolContractLimits { MaxChanges = 1 }));
+        Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, changeLimit.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void ReferenceAndDefinitionsCombinedShapeFailsAtTheClosedModelBoundary()
+    {
+        var capture = CaptureWithLimits("{\"$ref\":\"#/$defs/Order\",\"$defs\":{\"Order\":{\"type\":\"object\"}}}");
+
+        Assert.False(capture.Succeeded);
+        Assert.Equal(AiToolDiagnosticKind.UnsupportedClassification, capture.Diagnostic!.Kind);
+    }
+
+    public static IEnumerable<object[]> TransitionMatrix
+    {
+        get
+        {
+            yield return Matrix("reference-added", "{}", "{\"$ref\":\"#/$defs/Order\"}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("reference-removed", "{\"$ref\":\"#/$defs/Order\"}", "{}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("reference-target-changed", "{\"$ref\":\"#/$defs/Order\"}", "{\"$ref\":\"#/$defs/Invoice\"}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("description-added", "{}", "{\"description\":\"A value\"}", false, AiToolChangeKind.DescriptionChanged, AiToolCompatibility.Risky, false);
+            yield return Matrix("description-removed", "{\"description\":\"A value\"}", "{}", false, AiToolChangeKind.DescriptionChanged, AiToolCompatibility.Risky, false);
+            yield return Matrix("default-added", "{}", "{\"default\":null}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("default-removed", "{\"default\":null}", "{}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("format-added", "{}", "{\"format\":\"date-time\"}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("format-removed", "{\"format\":\"date-time\"}", "{}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+
+            yield return Matrix("type-added", "{}", "{\"type\":\"string\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
+            yield return Matrix("type-removed", "{\"type\":\"string\"}", "{}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, false);
+            yield return Matrix("type-union-widened", "{\"type\":\"string\"}", "{\"type\":[\"string\",\"null\"]}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, false);
+            yield return Matrix("type-union-narrowed", "{\"type\":[\"string\",\"null\"]}", "{\"type\":\"string\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
+            yield return Matrix("type-primitive-to-object", "{\"type\":\"string\"}", "{\"type\":\"object\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
+            yield return Matrix("type-object-to-array", "{\"type\":\"object\"}", "{\"type\":\"array\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
+            yield return Matrix("return-type-union-widened", "{\"type\":\"string\"}", "{\"type\":[\"string\",\"null\"]}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
+            yield return Matrix("return-type-union-narrowed", "{\"type\":[\"string\",\"null\"]}", "{\"type\":\"string\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
+
+            yield return Matrix("enum-added", "{\"type\":\"string\"}", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", false, AiToolChangeKind.EnumNarrowed, AiToolCompatibility.Breaking, false);
+            yield return Matrix("enum-removed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\"}", false, AiToolChangeKind.EnumExpanded, AiToolCompatibility.Additive, false);
+            yield return Matrix("enum-expanded", "{\"type\":\"string\",\"enum\":[\"open\"]}", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", false, AiToolChangeKind.EnumExpanded, AiToolCompatibility.Additive, false);
+            yield return Matrix("enum-narrowed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\",\"enum\":[\"open\"]}", false, AiToolChangeKind.EnumNarrowed, AiToolCompatibility.Breaking, false);
+            yield return Matrix("return-enum-expanded", "{\"type\":\"string\",\"enum\":[\"open\"]}", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
+            yield return Matrix("return-enum-narrowed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\",\"enum\":[\"open\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
+            yield return Matrix("enum-mixed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\",\"enum\":[\"open\",\"new\"]}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+
+            yield return Matrix("items-added", "{\"type\":\"array\"}", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("items-removed", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\"}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("nested-items-union-widened", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\",\"items\":{\"type\":[\"string\",\"null\"]}}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, false);
+
+            yield return Matrix("optional-property-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"note\":{\"type\":\"string\"}}}", false, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, false);
+            yield return Matrix("required-property-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}", false, AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, false);
+            yield return Matrix("property-removed", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}}}", "{\"type\":\"object\"}", false, AiToolChangeKind.ParameterRemoved, AiToolCompatibility.Breaking, false);
+            yield return Matrix("nested-property-type-changed", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}}}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"integer\"}}}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
+            yield return Matrix("return-optional-property-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
+            yield return Matrix("return-required-property-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}},\"required\":[\"result\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
+            yield return Matrix("return-property-removed", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", "{\"type\":\"object\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
+
+            yield return Matrix("required-declared-added", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}}}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}", false, AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, false);
+            yield return Matrix("required-declared-removed", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}}}", false, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, false);
+            yield return Matrix("required-undeclared-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"required\":[\"ghost\"]}", false, AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, false);
+            yield return Matrix("required-undeclared-removed", "{\"type\":\"object\",\"required\":[\"ghost\"]}", "{\"type\":\"object\"}", false, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, false);
+            yield return Matrix("return-required-declared-added", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}},\"required\":[\"result\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
+            yield return Matrix("return-required-declared-removed", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}},\"required\":[\"result\"]}", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
+
+            foreach (var memberName in new[] { "minimum", "exclusiveMinimum", "minLength", "minItems", "maximum", "exclusiveMaximum", "maxLength", "maxItems" })
+            {
+                var lowerBound = memberName is "minimum" or "exclusiveMinimum" or "minLength" or "minItems";
+                var narrowOld = lowerBound ? "1" : "2";
+                var narrowNew = lowerBound ? "2" : "1";
+                yield return Matrix("input-" + memberName + "-added", "{}", SchemaWithMember(memberName, "1"), false, AiToolChangeKind.ConstraintNarrowed, AiToolCompatibility.Breaking, false);
+                yield return Matrix("input-" + memberName + "-removed", SchemaWithMember(memberName, "1"), "{}", false, AiToolChangeKind.ConstraintExpanded, AiToolCompatibility.Additive, false);
+                yield return Matrix("input-" + memberName + "-narrowed", SchemaWithMember(memberName, narrowOld), SchemaWithMember(memberName, narrowNew), false, AiToolChangeKind.ConstraintNarrowed, AiToolCompatibility.Breaking, false);
+                yield return Matrix("input-" + memberName + "-widened", SchemaWithMember(memberName, narrowNew), SchemaWithMember(memberName, narrowOld), false, AiToolChangeKind.ConstraintExpanded, AiToolCompatibility.Additive, false);
+                yield return Matrix("return-" + memberName + "-narrowed", SchemaWithMember(memberName, narrowOld), SchemaWithMember(memberName, narrowNew), true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
+                yield return Matrix("return-" + memberName + "-widened", SchemaWithMember(memberName, narrowNew), SchemaWithMember(memberName, narrowOld), true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
+            }
+        }
+    }
+
+    private static object[] Matrix(string name, string oldSchema, string newSchema, bool returnSchema, AiToolChangeKind kind, AiToolCompatibility compatibility, bool unsupported) =>
+        new object[] { name, oldSchema, newSchema, returnSchema, kind, compatibility, unsupported };
+
+    private static string SchemaWithMember(string name, string value) => "{\"" + name + "\":" + value + "}";
+
+    private static AIFunction Function(string name, string description = "A tool") =>
+        AIFunctionFactory.Create((string value) => value, new AIFunctionFactoryOptions { Name = name, Description = description });
+
+    private static AiToolContractBaseline CaptureCatalog(params AITool[] tools)
+    {
+        var result = AiToolContractCapture.Capture(tools);
+        Assert.True(result.Succeeded, result.Diagnostic?.Message);
+        return result.Baseline!;
+    }
+
     private static string Search([Description("Search text.")] string query, [Description("Maximum results.")] int limit = 10, DateTime? since = null, Uri? callback = null, Guid? requestId = null, SearchStatus status = SearchStatus.Open, SearchOptions? options = null, string[]? tags = null) => query;
 
     private enum SearchStatus
@@ -308,5 +532,21 @@ public sealed class ContractTests
         Assert.False(diff.IsClean);
         Assert.Contains(diff.Changes, static change => change.Kind == AiToolChangeKind.Unsupported);
         Assert.Contains(diff.Diagnostics, static diagnostic => diagnostic.Kind == AiToolDiagnosticKind.UnsupportedClassification);
+    }
+
+    private static IEnumerable<string[]> Permutations(string[] values)
+    {
+        if (values.Length == 0)
+        {
+            yield return Array.Empty<string>();
+            yield break;
+        }
+
+        for (var index = 0; index < values.Length; index++)
+        {
+            var remaining = values.Where((_, remainingIndex) => remainingIndex != index).ToArray();
+            foreach (var tail in Permutations(remaining))
+                yield return new[] { values[index] }.Concat(tail).ToArray();
+        }
     }
 }

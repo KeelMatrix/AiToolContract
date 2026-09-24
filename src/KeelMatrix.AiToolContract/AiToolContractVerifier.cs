@@ -118,7 +118,7 @@ public static class AiToolContractVerifier
         CompareDefault(oldSchema, newSchema, toolName, path, changes, diagnostics, limits);
         CompareFormat(oldSchema, newSchema, toolName, path, changes, diagnostics, limits);
         CompareType(oldSchema, newSchema, toolName, path, input, changes, limits);
-        CompareEnum(oldSchema, newSchema, toolName, path, input, changes, limits);
+        CompareEnum(oldSchema, newSchema, toolName, path, input, changes, diagnostics, limits);
         CompareConstraints(oldSchema, newSchema, toolName, path, input, changes, limits);
         CompareObjectProperties(oldSchema, newSchema, toolName, path, input, changes, diagnostics, limits);
         CompareRequired(oldSchema, newSchema, toolName, path, input, changes, limits);
@@ -186,13 +186,19 @@ public static class AiToolContractVerifier
     {
         foreach (var name in newSchema.Required.Except(oldSchema.Required, StringComparer.Ordinal))
         {
-            if (oldSchema.Properties.ContainsKey(name))
+            // A property addition/removal already reports the structural change.
+            // Keep the required-set transition for declared properties that exist
+            // on both sides and for valid undeclared required names.
+            if (oldSchema.Properties.ContainsKey(name) == newSchema.Properties.ContainsKey(name))
                 Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.RequiredParameterAdded : AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, toolName, path + ".required", "Property '" + name + "' became required."));
         }
         foreach (var name in oldSchema.Required.Except(newSchema.Required, StringComparer.Ordinal))
         {
-            var kind = input ? AiToolChangeKind.OptionalParameterAdded : AiToolChangeKind.ReturnSchemaAdditive;
-            Add(changes, limits, new AiToolChange(kind, AiToolCompatibility.Additive, toolName, path + ".required", input ? "Parameter '" + name + "' is no longer required." : "Return property '" + name + "' is no longer required."));
+            if (oldSchema.Properties.ContainsKey(name) == newSchema.Properties.ContainsKey(name))
+            {
+                var kind = input ? AiToolChangeKind.OptionalParameterAdded : AiToolChangeKind.ReturnSchemaAdditive;
+                Add(changes, limits, new AiToolChange(kind, AiToolCompatibility.Additive, toolName, path + ".required", input ? "Parameter '" + name + "' is no longer required." : "Return property '" + name + "' is no longer required."));
+            }
         }
     }
 
@@ -212,20 +218,39 @@ public static class AiToolContractVerifier
     {
         if (oldSchema.Types.SequenceEqual(newSchema.Types, StringComparer.Ordinal))
             return;
-        var kind = input ? AiToolChangeKind.TypeChanged : AiToolChangeKind.ReturnSchemaBreaking;
-        Add(changes, limits, new AiToolChange(kind, AiToolCompatibility.Breaking, toolName, path + ".type", "Schema type changed."));
+
+        var oldTypes = oldSchema.Types;
+        var newTypes = newSchema.Types;
+        var narrowed = oldTypes.Count == 0
+            ? newTypes.Count > 0
+            : newTypes.Count > 0 && IsSubset(newTypes, oldTypes) && !IsSubset(oldTypes, newTypes);
+        var widened = newTypes.Count == 0
+            ? oldTypes.Count > 0
+            : oldTypes.Count > 0 && IsSubset(oldTypes, newTypes) && !IsSubset(newTypes, oldTypes);
+        var compatibility = narrowed ? AiToolCompatibility.Breaking : widened ? AiToolCompatibility.Additive : AiToolCompatibility.Breaking;
+        var kind = input
+            ? AiToolChangeKind.TypeChanged
+            : narrowed || !widened ? AiToolChangeKind.ReturnSchemaBreaking : AiToolChangeKind.ReturnSchemaAdditive;
+        Add(changes, limits, new AiToolChange(kind, compatibility, toolName, path + ".type", "Schema type " + (narrowed ? "narrowed" : widened ? "widened" : "changed") + "."));
     }
 
-    private static void CompareEnum(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
+    private static void CompareEnum(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
     {
-        if (oldSchema.EnumValues is null || newSchema.EnumValues is null || ValuesEqual(oldSchema.EnumValues, newSchema.EnumValues))
+        if (oldSchema.EnumValues is null && newSchema.EnumValues is null)
             return;
-        if (IsSubset(newSchema.EnumValues, oldSchema.EnumValues))
+
+        var narrowed = oldSchema.EnumValues is null || newSchema.EnumValues is not null && IsSubset(newSchema.EnumValues, oldSchema.EnumValues) && !IsSubset(oldSchema.EnumValues, newSchema.EnumValues);
+        var widened = newSchema.EnumValues is null || oldSchema.EnumValues is not null && IsSubset(oldSchema.EnumValues, newSchema.EnumValues) && !IsSubset(newSchema.EnumValues, oldSchema.EnumValues);
+        if (!narrowed && !widened)
+        {
+            if (ValuesEqual(oldSchema.EnumValues!, newSchema.EnumValues!))
+                return;
+            AddUnsupported(changes, diagnostics, limits, toolName, path + ".enum", "Enum values changed in both directions and cannot be classified safely.");
+        }
+        else if (narrowed)
             Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.EnumNarrowed : AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, toolName, path + ".enum", "Enum values were narrowed."));
-        else if (IsSubset(oldSchema.EnumValues, newSchema.EnumValues))
-            Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.EnumExpanded : AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, toolName, path + ".enum", "Enum values were expanded."));
         else
-            Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path + ".enum", "Enum values changed in both directions and cannot be classified safely."));
+            Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.EnumExpanded : AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, toolName, path + ".enum", "Enum values were expanded."));
     }
 
     private static void CompareConstraints(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
@@ -271,6 +296,9 @@ public static class AiToolContractVerifier
 
     private static bool IsSubset(IReadOnlyList<NormalizedJsonValue> subset, IReadOnlyList<NormalizedJsonValue> superset) =>
         subset.All(value => superset.Any(value.SemanticallyEquals));
+
+    private static bool IsSubset(IReadOnlyList<string> subset, IReadOnlyList<string> superset) =>
+        subset.All(value => superset.Contains(value, StringComparer.Ordinal));
 
     private static void AddUnsupported(List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, string toolName, string path, string message)
     {

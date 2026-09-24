@@ -12,7 +12,7 @@ The subset is derived from probes of `AIFunctionFactory` with `Microsoft.Extensi
 | `description` | String | Changes are `Risky` because model behavior may change |
 | `default` | Any JSON data-model value | Capture and round-trip are supported; changes are unsupported and require review |
 | `format` | String | Capture and round-trip are supported; changes are unsupported and require review |
-| `type` | Recognized type string or non-empty unique array of type strings | Changes are `Breaking` |
+| `type` | Recognized type string or non-empty unique array of type strings | Union narrowing is `Breaking`; union widening is `Additive`; incomparable type changes are `Breaking` |
 | `enum` | Non-empty array of unique JSON data-model values | Narrowing is `Breaking`; expansion is `Additive`; mixed changes require review |
 | `items` | One schema object | Nested changes are classified; presence changes are unsupported |
 | `properties` | Object whose values are schemas | Added/removed and nested changes are classified |
