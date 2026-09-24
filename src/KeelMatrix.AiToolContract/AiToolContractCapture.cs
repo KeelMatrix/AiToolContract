@@ -110,11 +110,25 @@ internal static class CanonicalJson
         if (System.Text.Encoding.UTF8.GetByteCount(raw) > limits.MaxSchemaBytes)
             throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, "The JSON Schema exceeds the configured byte limit."));
 
-        using var document = JsonDocument.Parse(raw, new JsonDocumentOptions { MaxDepth = limits.MaxSchemaDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
-        var builder = new System.Text.StringBuilder(raw.Length);
-        var state = new CanonicalState(limits);
-        Write(document.RootElement, builder, state, 0);
-        return builder.ToString();
+        try
+        {
+            using var document = JsonDocument.Parse(raw, new JsonDocumentOptions { MaxDepth = limits.MaxSchemaDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
+            SchemaSemantics.Validate(document.RootElement);
+            var builder = new System.Text.StringBuilder(raw.Length);
+            var state = new CanonicalState(limits);
+            Write(document.RootElement, builder, state, 0);
+            return builder.ToString();
+        }
+        catch (AiToolContractException)
+        {
+            throw;
+        }
+        catch (JsonException ex)
+        {
+            throw new AiToolContractException(new AiToolContractDiagnostic(
+                AiToolContractJson.IsDepthLimit(ex) ? AiToolDiagnosticKind.CanonicalizationOrResourceLimit : AiToolDiagnosticKind.CaptureFailure,
+                "The JSON Schema is " + (AiToolContractJson.IsDepthLimit(ex) ? "too deep" : "malformed") + ": " + ex.Message));
+        }
     }
 
     public static string Canonicalize(string raw, AiToolContractLimits limits)
@@ -127,6 +141,7 @@ internal static class CanonicalJson
         try
         {
             using var document = JsonDocument.Parse(raw, new JsonDocumentOptions { MaxDepth = limits.MaxSchemaDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
+            SchemaSemantics.Validate(document.RootElement);
             var builder = new System.Text.StringBuilder(raw.Length);
             var state = new CanonicalState(limits);
             Write(document.RootElement, builder, state, 0);
@@ -138,7 +153,9 @@ internal static class CanonicalJson
         }
         catch (JsonException ex)
         {
-            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.MalformedBaseline, "The JSON Schema is malformed: " + ex.Message));
+            throw new AiToolContractException(new AiToolContractDiagnostic(
+                AiToolContractJson.IsDepthLimit(ex) ? AiToolDiagnosticKind.CanonicalizationOrResourceLimit : AiToolDiagnosticKind.MalformedBaseline,
+                "The JSON Schema is " + (AiToolContractJson.IsDepthLimit(ex) ? "too deep" : "malformed") + ": " + ex.Message));
         }
     }
 

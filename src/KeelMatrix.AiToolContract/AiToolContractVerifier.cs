@@ -22,6 +22,13 @@ public static class AiToolContractVerifier
         var diagnostics = new List<AiToolContractDiagnostic>();
         var oldTools = baseline.Tools.ToDictionary(static tool => tool.Name, StringComparer.Ordinal);
         var newTools = candidate.Tools.ToDictionary(static tool => tool.Name, StringComparer.Ordinal);
+        var reportedUnsupported = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var tool in oldTools.Values.Concat(newTools.Values))
+        {
+            ReportUnsupportedSchema(tool.InputSchemaJson, tool.Name, "$", changes, diagnostics, reportedUnsupported, effectiveLimits);
+            if (tool.ReturnSchemaJson is not null)
+                ReportUnsupportedSchema(tool.ReturnSchemaJson, tool.Name, "$.returnSchema", changes, diagnostics, reportedUnsupported, effectiveLimits);
+        }
 
         foreach (var oldTool in oldTools.Values)
         {
@@ -49,8 +56,8 @@ public static class AiToolContractVerifier
                 Add(changes, effectiveLimits, new AiToolChange(AiToolChangeKind.ApprovalSafetyMetadataChanged, compatibility, oldTool.Name, "$.requiresApproval", "Approval/safety metadata changed and requires explicit review."));
             }
 
-            using var oldInput = JsonDocument.Parse(oldTool.InputSchemaJson);
-            using var newInput = JsonDocument.Parse(newTool.InputSchemaJson);
+            using var oldInput = ParseSchemaForComparison(oldTool.InputSchemaJson, effectiveLimits);
+            using var newInput = ParseSchemaForComparison(newTool.InputSchemaJson, effectiveLimits);
             CompareSchema(oldInput.RootElement, newInput.RootElement, oldTool.Name, "$", true, changes, diagnostics, effectiveLimits);
 
             if (oldTool.ReturnSchemaJson is null && newTool.ReturnSchemaJson is not null)
@@ -59,8 +66,8 @@ public static class AiToolContractVerifier
                 Add(changes, effectiveLimits, new AiToolChange(AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, oldTool.Name, "$.returnSchema", "The return schema was removed."));
             else if (oldTool.ReturnSchemaJson is not null && newTool.ReturnSchemaJson is not null)
             {
-                using var oldReturn = JsonDocument.Parse(oldTool.ReturnSchemaJson);
-                using var newReturn = JsonDocument.Parse(newTool.ReturnSchemaJson);
+                using var oldReturn = ParseSchemaForComparison(oldTool.ReturnSchemaJson, effectiveLimits);
+                using var newReturn = ParseSchemaForComparison(newTool.ReturnSchemaJson, effectiveLimits);
                 CompareSchema(oldReturn.RootElement, newReturn.RootElement, oldTool.Name, "$.returnSchema", false, changes, diagnostics, effectiveLimits);
             }
         }
@@ -113,6 +120,34 @@ public static class AiToolContractVerifier
         if (changes.Count >= limits.MaxChanges)
             throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, "The comparison exceeds the configured change-count limit."));
         changes.Add(change);
+    }
+
+    private static void ReportUnsupportedSchema(string raw, string toolName, string pathPrefix, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, HashSet<string> reported, AiToolContractLimits limits)
+    {
+        using var document = ParseSchemaForComparison(raw, limits);
+        foreach (var unsupported in SchemaSemantics.FindUnsupported(document.RootElement))
+        {
+            var path = pathPrefix == "$" ? unsupported.Path : pathPrefix + unsupported.Path.TrimStart('$');
+            var key = toolName + "|" + path + "|" + unsupported.Keyword;
+            if (!reported.Add(key))
+                continue;
+            Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path, "Schema keyword '" + unsupported.Keyword + "' has unsupported semantics and requires review."));
+            diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, "Schema keyword '" + unsupported.Keyword + "' at " + path + " requires review because its semantics are unsupported."));
+        }
+    }
+
+    private static JsonDocument ParseSchemaForComparison(string raw, AiToolContractLimits limits)
+    {
+        try
+        {
+            return JsonDocument.Parse(raw, new JsonDocumentOptions { MaxDepth = limits.MaxSchemaDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
+        }
+        catch (JsonException ex)
+        {
+            throw new AiToolContractException(new AiToolContractDiagnostic(
+                AiToolContractJson.IsDepthLimit(ex) ? AiToolDiagnosticKind.CanonicalizationOrResourceLimit : AiToolDiagnosticKind.MalformedBaseline,
+                "The stored JSON Schema is " + (AiToolContractJson.IsDepthLimit(ex) ? "too deep" : "malformed") + ": " + ex.Message));
+        }
     }
 
     private static void CompareSchema(JsonElement oldSchema, JsonElement newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
@@ -175,7 +210,9 @@ public static class AiToolContractVerifier
             var required = IsRequired(newSchema, newProperty.Key);
             if (!input)
             {
-                Add(changes, limits, new AiToolChange(AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, toolName, path + ".properties." + newProperty.Key, "Return property '" + newProperty.Key + "' was added."));
+                var kind = required ? AiToolChangeKind.ReturnSchemaBreaking : AiToolChangeKind.ReturnSchemaAdditive;
+                var compatibility = required ? AiToolCompatibility.Breaking : AiToolCompatibility.Additive;
+                Add(changes, limits, new AiToolChange(kind, compatibility, toolName, path + ".properties." + newProperty.Key, "Return property '" + newProperty.Key + "' was added."));
             }
             else if (required)
             {
@@ -296,9 +333,9 @@ public static class AiToolContractVerifier
         var narrowed = false;
         var expanded = false;
         if (!oldExists && newExists)
-            narrowed = lowerBound;
+            narrowed = true;
         else if (oldExists && !newExists)
-            expanded = lowerBound;
+            expanded = true;
         else if (TryNumber(oldValue, out var oldNumber) && TryNumber(newValue, out var newNumber))
         {
             narrowed = lowerBound ? newNumber > oldNumber : newNumber < oldNumber;

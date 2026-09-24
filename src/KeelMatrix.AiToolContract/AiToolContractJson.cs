@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 
 namespace KeelMatrix.AiToolContract;
@@ -53,6 +54,7 @@ public static class AiToolContractJson
             if (System.Text.Encoding.UTF8.GetByteCount(json) > effectiveLimits.MaxSchemaBytes * 2L)
                 throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, "The baseline exceeds the configured byte limit."));
 
+            RejectDuplicateProperties(json, effectiveLimits);
             using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = effectiveLimits.MaxSchemaDepth + 4, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
@@ -101,7 +103,7 @@ public static class AiToolContractJson
         }
         catch (JsonException ex)
         {
-            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.MalformedBaseline, "The baseline JSON is malformed: " + ex.Message));
+            throw new AiToolContractException(new AiToolContractDiagnostic(IsDepthLimit(ex) ? AiToolDiagnosticKind.CanonicalizationOrResourceLimit : AiToolDiagnosticKind.MalformedBaseline, "The baseline JSON is " + (IsDepthLimit(ex) ? "too deep" : "malformed") + ": " + ex.Message));
         }
         catch (InvalidOperationException ex)
         {
@@ -130,4 +132,143 @@ public static class AiToolContractJson
 
     private static AiToolContractException Malformed(string message) =>
         new(new AiToolContractDiagnostic(AiToolDiagnosticKind.MalformedBaseline, message));
+
+    private static void RejectDuplicateProperties(string json, AiToolContractLimits limits)
+    {
+        var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(json), new JsonReaderOptions
+        {
+            CommentHandling = JsonCommentHandling.Disallow,
+            AllowTrailingCommas = false,
+            MaxDepth = limits.MaxSchemaDepth + 4
+        });
+        var objects = new Stack<HashSet<string>>();
+        var sawToken = false;
+
+        try
+        {
+            while (reader.Read())
+            {
+                sawToken = true;
+                switch (reader.TokenType)
+                {
+                    case JsonTokenType.StartObject:
+                        objects.Push(new HashSet<string>(StringComparer.Ordinal));
+                        break;
+                    case JsonTokenType.PropertyName:
+                        if (objects.Count == 0 || !objects.Peek().Add(reader.GetString()!))
+                            throw Malformed("The baseline contains a duplicate JSON object member.");
+                        break;
+                    case JsonTokenType.EndObject:
+                        if (objects.Count == 0)
+                            throw Malformed("The baseline JSON is malformed.");
+                        objects.Pop();
+                        break;
+                }
+            }
+        }
+        catch (AiToolContractException)
+        {
+            throw;
+        }
+        catch (JsonException ex)
+        {
+            throw new AiToolContractException(new AiToolContractDiagnostic(IsDepthLimit(ex) ? AiToolDiagnosticKind.CanonicalizationOrResourceLimit : AiToolDiagnosticKind.MalformedBaseline, "The baseline JSON is " + (IsDepthLimit(ex) ? "too deep" : "malformed") + ": " + ex.Message));
+        }
+
+        if (!sawToken || objects.Count != 0)
+            throw Malformed("The baseline JSON is malformed.");
+    }
+
+    internal static bool IsDepthLimit(JsonException exception) =>
+        exception.Message.Contains("depth", StringComparison.OrdinalIgnoreCase) ||
+        exception.Message.Contains("maximum", StringComparison.OrdinalIgnoreCase);
+}
+
+internal static class SchemaSemantics
+{
+    private static readonly HashSet<string> SupportedKeywords = new(StringComparer.Ordinal)
+    {
+        "$defs",
+        "$ref",
+        "additionalProperties",
+        "allOf",
+        "anyOf",
+        "contains",
+        "definitions",
+        "enum",
+        "exclusiveMaximum",
+        "exclusiveMinimum",
+        "items",
+        "maxItems",
+        "maxLength",
+        "maximum",
+        "minItems",
+        "minLength",
+        "minimum",
+        "not",
+        "nullable",
+        "oneOf",
+        "properties",
+        "required",
+        "type"
+    };
+
+    internal static void Validate(JsonElement schema)
+    {
+        var unsupported = FindUnsupported(schema).FirstOrDefault();
+        if (!string.IsNullOrEmpty(unsupported.Keyword))
+            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, "Schema keyword '" + unsupported.Keyword + "' at " + unsupported.Path + " has unsupported semantics and requires review."));
+    }
+
+    internal static IEnumerable<(string Path, string Keyword)> FindUnsupported(JsonElement schema)
+    {
+        var results = new List<(string Path, string Keyword)>();
+        Visit(schema, "$", results);
+        return results;
+    }
+
+    private static void Visit(JsonElement schema, string path, ICollection<(string Path, string Keyword)> results)
+    {
+        if (schema.ValueKind != JsonValueKind.Object)
+            return;
+
+        foreach (var property in schema.EnumerateObject())
+        {
+            var propertyPath = path + "." + property.Name;
+            if (!SupportedKeywords.Contains(property.Name))
+            {
+                results.Add((propertyPath, property.Name));
+                continue;
+            }
+
+            switch (property.Name)
+            {
+                case "properties":
+                case "$defs":
+                case "definitions":
+                    if (property.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var child in property.Value.EnumerateObject())
+                            Visit(child.Value, propertyPath + "." + child.Name, results);
+                    }
+                    break;
+                case "items":
+                case "additionalProperties":
+                case "contains":
+                case "not":
+                    Visit(property.Value, propertyPath, results);
+                    break;
+                case "oneOf":
+                case "anyOf":
+                case "allOf":
+                    if (property.Value.ValueKind == JsonValueKind.Array)
+                    {
+                        var index = 0;
+                        foreach (var child in property.Value.EnumerateArray())
+                            Visit(child, propertyPath + "[" + index++ + "]", results);
+                    }
+                    break;
+            }
+        }
+    }
 }

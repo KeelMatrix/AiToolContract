@@ -170,14 +170,54 @@ public sealed class ContractTests
     [Fact]
     public void UnknownSchemaChangeFailsClosed()
     {
-        var baseline = Capture("{\"type\":\"object\",\"x-vendor-policy\":\"one\"}");
-        var candidate = Capture("{\"type\":\"object\",\"x-vendor-policy\":\"two\"}");
+        var baseline = BaselineWithInput("{\"type\":\"object\",\"x-vendor-policy\":\"one\"}");
+        var candidate = BaselineWithInput("{\"type\":\"object\",\"x-vendor-policy\":\"two\"}");
 
         var diff = AiToolContractVerifier.Compare(baseline, candidate);
 
         Assert.False(diff.IsClean);
         Assert.Contains(diff.Changes, static change => change.Kind == AiToolChangeKind.Unsupported);
         Assert.Contains(diff.Diagnostics, static diagnostic => diagnostic.Kind == AiToolDiagnosticKind.UnsupportedClassification);
+    }
+
+    [Fact]
+    public void UnchangedUnsupportedSchemaSemanticsFailClosedOnCaptureParseAndCompare()
+    {
+        var schema = "{\"type\":\"object\",\"x-vendor-policy\":\"one\"}";
+
+        var capture = CaptureWithLimits(schema, AiToolContractLimits.Default);
+        Assert.False(capture.Succeeded);
+        Assert.Equal(AiToolDiagnosticKind.UnsupportedClassification, capture.Diagnostic!.Kind);
+
+        var parse = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse("{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":\"A tool\",\"inputSchema\":" + schema + ",\"returnSchema\":null,\"requiresApproval\":false}]}"));
+        Assert.Equal(AiToolDiagnosticKind.UnsupportedClassification, parse.Diagnostic.Kind);
+
+        var diff = AiToolContractVerifier.Compare(BaselineWithInput(schema), BaselineWithInput(schema));
+        Assert.False(diff.IsClean);
+        Assert.Contains(diff.Changes, static change => change.Kind == AiToolChangeKind.Unsupported);
+        Assert.Contains(diff.Diagnostics, static diagnostic => diagnostic.Kind == AiToolDiagnosticKind.UnsupportedClassification);
+    }
+
+    [Fact]
+    public void DuplicateBaselineMembersFailAsMalformedForEveryEnvelopeObject()
+    {
+        var duplicateDocuments = new[]
+        {
+            "{\"schemaVersion\":1,\"schemaVersion\":1,\"tools\":[]}",
+            "{\"schemaVersion\":1,\"tools\":[],\"tools\":[]}",
+            "{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"name\":\"tool\",\"description\":null,\"inputSchema\":{\"type\":\"object\"},\"returnSchema\":null,\"requiresApproval\":false}]}",
+            "{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"description\":null,\"inputSchema\":{\"type\":\"object\"},\"returnSchema\":null,\"requiresApproval\":false}]}",
+            "{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"inputSchema\":{\"type\":\"object\"},\"inputSchema\":{\"type\":\"object\"},\"returnSchema\":null,\"requiresApproval\":false}]}",
+            "{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"inputSchema\":{\"type\":\"object\"},\"returnSchema\":null,\"returnSchema\":null,\"requiresApproval\":false}]}",
+            "{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"inputSchema\":{\"type\":\"object\"},\"returnSchema\":null,\"requiresApproval\":false,\"requiresApproval\":false}]}",
+            "{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\",\"type\":\"string\"}}},\"returnSchema\":null,\"requiresApproval\":false}]}",
+        };
+
+        foreach (var json in duplicateDocuments)
+        {
+            var exception = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse(json));
+            Assert.Equal(AiToolDiagnosticKind.MalformedBaseline, exception.Diagnostic.Kind);
+        }
     }
 
     [Fact]
@@ -206,11 +246,41 @@ public sealed class ContractTests
     public void ResourceLimitsFailSafely()
     {
         var limits = new AiToolContractLimits { MaxSchemaDepth = 3, MaxSchemaBytes = 64 };
-        var deep = Capture("{\"a\":{\"b\":{\"c\":{\"type\":\"string\"}}}}");
+        var deep = Capture("{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"object\",\"properties\":{\"b\":{\"type\":\"object\",\"properties\":{\"c\":{\"type\":\"string\"}}}}}}}");
         var oversized = CaptureWithLimits("{\"description\":\"" + new string('x', 100) + "\"}", new AiToolContractLimits { MaxSchemaBytes = 32 });
 
         Assert.False(AiToolContractCapture.Capture(new AITool[] { Declaration("deep", deep.Tools[0].InputSchemaJson) }, limits).Succeeded);
         Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, oversized.Diagnostic!.Kind);
+    }
+
+    [Fact]
+    public void ResourceLimitCategoriesAreExplicit()
+    {
+        var propertyLimited = CaptureWithLimits("{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"},\"b\":{\"type\":\"string\"}}}", new AiToolContractLimits { MaxProperties = 1 });
+        var arrayLimited = CaptureWithLimits("{\"enum\":[1,2]}", new AiToolContractLimits { MaxArrayItems = 1 });
+        var toolsLimited = AiToolContractCapture.Capture(new AITool[]
+        {
+            Declaration("first", "{\"type\":\"object\"}"),
+            Declaration("second", "{\"type\":\"object\"}")
+        }, new AiToolContractLimits { MaxTools = 1 });
+
+        Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, propertyLimited.Diagnostic!.Kind);
+        Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, arrayLimited.Diagnostic!.Kind);
+        Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, toolsLimited.Diagnostic!.Kind);
+
+        var changeLimited = Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Compare(
+            Capture("{\"type\":\"integer\",\"minimum\":1,\"maximum\":100}"),
+            Capture("{\"type\":\"integer\",\"minimum\":10,\"maximum\":50}"),
+            new AiToolContractLimits { MaxChanges = 1 }));
+        Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, changeLimited.Diagnostic.Kind);
+
+        var depthLimitedCapture = CaptureWithLimits("{\"a\":{\"b\":{\"c\":{\"type\":\"string\"}}}}", new AiToolContractLimits { MaxSchemaDepth = 3 });
+        Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, depthLimitedCapture.Diagnostic!.Kind);
+
+        var depthLimitedParse = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse(
+            "{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"inputSchema\":{\"a\":{\"b\":{\"c\":{\"type\":\"string\"}}}},\"returnSchema\":null,\"requiresApproval\":false}]}",
+            new AiToolContractLimits { MaxSchemaDepth = 3 }));
+        Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, depthLimitedParse.Diagnostic.Kind);
     }
 
     [Fact]
@@ -225,8 +295,35 @@ public sealed class ContractTests
         Assert.Same(candidate, AiToolContractVerifier.AcceptWithBreakingReview(candidate, diff));
     }
 
+    [Fact]
+    public void ConstraintBoundsClassifyUnboundedTransitionsInBothDirections()
+    {
+        var unbounded = Capture("{\"type\":\"integer\"}");
+        var bounded = Capture("{\"type\":\"integer\",\"maximum\":100}");
+        var lowerBounded = Capture("{\"type\":\"integer\",\"minimum\":1}");
+
+        Assert.Contains(AiToolContractVerifier.Compare(unbounded, bounded).Changes, static change => change.Kind == AiToolChangeKind.ConstraintNarrowed && change.Compatibility == AiToolCompatibility.Breaking);
+        Assert.Contains(AiToolContractVerifier.Compare(bounded, unbounded).Changes, static change => change.Kind == AiToolChangeKind.ConstraintExpanded && change.Compatibility == AiToolCompatibility.Additive);
+        Assert.Contains(AiToolContractVerifier.Compare(unbounded, lowerBounded).Changes, static change => change.Kind == AiToolChangeKind.ConstraintNarrowed && change.Compatibility == AiToolCompatibility.Breaking);
+        Assert.Contains(AiToolContractVerifier.Compare(lowerBounded, unbounded).Changes, static change => change.Kind == AiToolChangeKind.ConstraintExpanded && change.Compatibility == AiToolCompatibility.Additive);
+    }
+
+    [Fact]
+    public void RequiredAndOptionalReturnPropertiesHaveDifferentCompatibility()
+    {
+        var baseline = Capture("{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}");
+        var optional = Capture("{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"count\":{\"type\":\"integer\"}}}");
+        var required = Capture("{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"count\":{\"type\":\"integer\"}},\"required\":[\"count\"]}");
+
+        Assert.Contains(AiToolContractVerifier.Compare(baseline, optional).Changes, static change => change.Kind == AiToolChangeKind.ReturnSchemaAdditive && change.Compatibility == AiToolCompatibility.Additive);
+        Assert.Contains(AiToolContractVerifier.Compare(baseline, required).Changes, static change => change.Kind == AiToolChangeKind.ReturnSchemaBreaking && change.Compatibility == AiToolCompatibility.Breaking);
+    }
+
     private static AiToolContractBaseline Capture(string inputSchema, string? returnSchema = null, string? description = "A tool") =>
         AiToolContractCapture.Capture(new AITool[] { Declaration("tool", inputSchema, returnSchema, description) }).Baseline!;
+
+    private static AiToolContractBaseline BaselineWithInput(string inputSchema) =>
+        new(new[] { new AiToolContractTool("tool", "A tool", inputSchema, null, false) });
 
     private static AiToolContractCaptureResult CaptureWithLimits(string inputSchema, AiToolContractLimits limits) =>
         AiToolContractCapture.Capture(new AITool[] { Declaration("tool", inputSchema) }, limits);
