@@ -1,0 +1,91 @@
+#nullable enable
+KeelMatrix.AiToolContract.AiToolChange
+KeelMatrix.AiToolContract.AiToolChange.Compatibility.get -> KeelMatrix.AiToolContract.AiToolCompatibility
+KeelMatrix.AiToolContract.AiToolChange.Kind.get -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChange.Message.get -> string!
+KeelMatrix.AiToolContract.AiToolChange.Path.get -> string!
+KeelMatrix.AiToolContract.AiToolChange.ToolName.get -> string!
+KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.ApprovalSafetyMetadataChanged = 13 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.ConstraintExpanded = 8 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.ConstraintNarrowed = 7 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.DescriptionChanged = 12 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.EnumExpanded = 6 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.EnumNarrowed = 5 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.OptionalParameterAdded = 9 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.ParameterRemoved = 3 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.RequiredParameterAdded = 2 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.ReturnSchemaAdditive = 11 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.ReturnSchemaBreaking = 10 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.ToolAdded = 0 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.ToolRemoved = 1 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.TypeChanged = 4 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolChangeKind.Unsupported = 14 -> KeelMatrix.AiToolContract.AiToolChangeKind
+KeelMatrix.AiToolContract.AiToolCompatibility
+KeelMatrix.AiToolContract.AiToolCompatibility.Additive = 1 -> KeelMatrix.AiToolContract.AiToolCompatibility
+KeelMatrix.AiToolContract.AiToolCompatibility.Breaking = 3 -> KeelMatrix.AiToolContract.AiToolCompatibility
+KeelMatrix.AiToolContract.AiToolCompatibility.Informational = 0 -> KeelMatrix.AiToolContract.AiToolCompatibility
+KeelMatrix.AiToolContract.AiToolCompatibility.Risky = 2 -> KeelMatrix.AiToolContract.AiToolCompatibility
+KeelMatrix.AiToolContract.AiToolContractBaseline
+KeelMatrix.AiToolContract.AiToolContractBaseline.SchemaVersion.get -> int
+KeelMatrix.AiToolContract.AiToolContractBaseline.Tools.get -> System.Collections.Generic.IReadOnlyList<KeelMatrix.AiToolContract.AiToolContractTool!>!
+KeelMatrix.AiToolContract.AiToolContractCapture
+KeelMatrix.AiToolContract.AiToolContractCaptureResult
+KeelMatrix.AiToolContract.AiToolContractCaptureResult.Baseline.get -> KeelMatrix.AiToolContract.AiToolContractBaseline?
+KeelMatrix.AiToolContract.AiToolContractCaptureResult.Diagnostic.get -> KeelMatrix.AiToolContract.AiToolContractDiagnostic?
+KeelMatrix.AiToolContract.AiToolContractCaptureResult.Succeeded.get -> bool
+KeelMatrix.AiToolContract.AiToolContractDiagnostic
+KeelMatrix.AiToolContract.AiToolContractDiagnostic.AiToolContractDiagnostic(KeelMatrix.AiToolContract.AiToolDiagnosticKind kind, string! message) -> void
+KeelMatrix.AiToolContract.AiToolContractDiagnostic.Kind.get -> KeelMatrix.AiToolContract.AiToolDiagnosticKind
+KeelMatrix.AiToolContract.AiToolContractDiagnostic.Message.get -> string!
+KeelMatrix.AiToolContract.AiToolContractDiff
+KeelMatrix.AiToolContract.AiToolContractDiff.Changes.get -> System.Collections.Generic.IReadOnlyList<KeelMatrix.AiToolContract.AiToolChange!>!
+KeelMatrix.AiToolContract.AiToolContractDiff.Compatibility.get -> KeelMatrix.AiToolContract.AiToolCompatibility
+KeelMatrix.AiToolContract.AiToolContractDiff.Diagnostics.get -> System.Collections.Generic.IReadOnlyList<KeelMatrix.AiToolContract.AiToolContractDiagnostic!>!
+KeelMatrix.AiToolContract.AiToolContractDiff.IsClean.get -> bool
+KeelMatrix.AiToolContract.AiToolContractException
+KeelMatrix.AiToolContract.AiToolContractException.AiToolContractException(KeelMatrix.AiToolContract.AiToolContractDiagnostic! diagnostic) -> void
+KeelMatrix.AiToolContract.AiToolContractException.Diagnostic.get -> KeelMatrix.AiToolContract.AiToolContractDiagnostic!
+KeelMatrix.AiToolContract.AiToolContractJson
+KeelMatrix.AiToolContract.AiToolContractLimits
+KeelMatrix.AiToolContract.AiToolContractLimits.AiToolContractLimits() -> void
+KeelMatrix.AiToolContract.AiToolContractLimits.MaxArrayItems.get -> int
+KeelMatrix.AiToolContract.AiToolContractLimits.MaxArrayItems.set -> void
+KeelMatrix.AiToolContract.AiToolContractLimits.MaxChanges.get -> int
+KeelMatrix.AiToolContract.AiToolContractLimits.MaxChanges.set -> void
+KeelMatrix.AiToolContract.AiToolContractLimits.MaxProperties.get -> int
+KeelMatrix.AiToolContract.AiToolContractLimits.MaxProperties.set -> void
+KeelMatrix.AiToolContract.AiToolContractLimits.MaxSchemaBytes.get -> int
+KeelMatrix.AiToolContract.AiToolContractLimits.MaxSchemaBytes.set -> void
+KeelMatrix.AiToolContract.AiToolContractLimits.MaxSchemaDepth.get -> int
+KeelMatrix.AiToolContract.AiToolContractLimits.MaxSchemaDepth.set -> void
+KeelMatrix.AiToolContract.AiToolContractLimits.MaxTools.get -> int
+KeelMatrix.AiToolContract.AiToolContractLimits.MaxTools.set -> void
+KeelMatrix.AiToolContract.AiToolContractTool
+KeelMatrix.AiToolContract.AiToolContractTool.Description.get -> string?
+KeelMatrix.AiToolContract.AiToolContractTool.InputSchemaJson.get -> string!
+KeelMatrix.AiToolContract.AiToolContractTool.Name.get -> string!
+KeelMatrix.AiToolContract.AiToolContractTool.RequiresApproval.get -> bool
+KeelMatrix.AiToolContract.AiToolContractTool.ReturnSchemaJson.get -> string?
+KeelMatrix.AiToolContract.AiToolContractVerificationResult
+KeelMatrix.AiToolContract.AiToolContractVerificationResult.Capture.get -> KeelMatrix.AiToolContract.AiToolContractCaptureResult!
+KeelMatrix.AiToolContract.AiToolContractVerificationResult.Diff.get -> KeelMatrix.AiToolContract.AiToolContractDiff?
+KeelMatrix.AiToolContract.AiToolContractVerificationResult.IsClean.get -> bool
+KeelMatrix.AiToolContract.AiToolContractVerifier
+KeelMatrix.AiToolContract.AiToolDiagnosticKind
+KeelMatrix.AiToolContract.AiToolDiagnosticKind.CanonicalizationOrResourceLimit = 4 -> KeelMatrix.AiToolContract.AiToolDiagnosticKind
+KeelMatrix.AiToolContract.AiToolDiagnosticKind.CaptureFailure = 0 -> KeelMatrix.AiToolContract.AiToolDiagnosticKind
+KeelMatrix.AiToolContract.AiToolDiagnosticKind.CompatibilityDifference = 5 -> KeelMatrix.AiToolContract.AiToolDiagnosticKind
+KeelMatrix.AiToolContract.AiToolDiagnosticKind.DuplicateToolIdentity = 1 -> KeelMatrix.AiToolContract.AiToolDiagnosticKind
+KeelMatrix.AiToolContract.AiToolDiagnosticKind.MalformedBaseline = 2 -> KeelMatrix.AiToolContract.AiToolDiagnosticKind
+KeelMatrix.AiToolContract.AiToolDiagnosticKind.UnsupportedBaselineVersion = 3 -> KeelMatrix.AiToolContract.AiToolDiagnosticKind
+KeelMatrix.AiToolContract.AiToolDiagnosticKind.UnsupportedClassification = 6 -> KeelMatrix.AiToolContract.AiToolDiagnosticKind
+static KeelMatrix.AiToolContract.AiToolContractCapture.Capture(System.Collections.Generic.IEnumerable<Microsoft.Extensions.AI.AIFunction!>! functions, KeelMatrix.AiToolContract.AiToolContractLimits? limits = null) -> KeelMatrix.AiToolContract.AiToolContractCaptureResult!
+static KeelMatrix.AiToolContract.AiToolContractCapture.Capture(System.Collections.Generic.IEnumerable<Microsoft.Extensions.AI.AITool!>! tools, KeelMatrix.AiToolContract.AiToolContractLimits? limits = null) -> KeelMatrix.AiToolContract.AiToolContractCaptureResult!
+static KeelMatrix.AiToolContract.AiToolContractJson.Parse(string! json, KeelMatrix.AiToolContract.AiToolContractLimits? limits = null) -> KeelMatrix.AiToolContract.AiToolContractBaseline!
+static KeelMatrix.AiToolContract.AiToolContractJson.Serialize(KeelMatrix.AiToolContract.AiToolContractBaseline! baseline, KeelMatrix.AiToolContract.AiToolContractLimits? limits = null) -> string!
+static KeelMatrix.AiToolContract.AiToolContractLimits.Default.get -> KeelMatrix.AiToolContract.AiToolContractLimits!
+static KeelMatrix.AiToolContract.AiToolContractVerifier.Accept(KeelMatrix.AiToolContract.AiToolContractBaseline! candidate, KeelMatrix.AiToolContract.AiToolContractDiff! diff) -> KeelMatrix.AiToolContract.AiToolContractBaseline!
+static KeelMatrix.AiToolContract.AiToolContractVerifier.AcceptWithBreakingReview(KeelMatrix.AiToolContract.AiToolContractBaseline! candidate, KeelMatrix.AiToolContract.AiToolContractDiff! diff) -> KeelMatrix.AiToolContract.AiToolContractBaseline!
+static KeelMatrix.AiToolContract.AiToolContractVerifier.Compare(KeelMatrix.AiToolContract.AiToolContractBaseline! baseline, KeelMatrix.AiToolContract.AiToolContractBaseline! candidate, KeelMatrix.AiToolContract.AiToolContractLimits? limits = null) -> KeelMatrix.AiToolContract.AiToolContractDiff!
+static KeelMatrix.AiToolContract.AiToolContractVerifier.Verify(KeelMatrix.AiToolContract.AiToolContractBaseline! baseline, System.Collections.Generic.IEnumerable<Microsoft.Extensions.AI.AITool!>! tools, KeelMatrix.AiToolContract.AiToolContractLimits? limits = null) -> KeelMatrix.AiToolContract.AiToolContractVerificationResult!

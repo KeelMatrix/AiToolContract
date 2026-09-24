@@ -1,0 +1,10 @@
+* text=auto eol=lf
+*.sln text eol=crlf
+*.slnx text eol=lf
+*.cs text diff
+*.csproj text diff
+*.props text diff
+*.targets text diff
+*.json text
+*.md text
+
