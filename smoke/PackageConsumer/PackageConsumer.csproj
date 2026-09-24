@@ -5,9 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <IsPackable>false</IsPackable>
+    <AiToolContractConsumerAbstractionsVersion Condition="'$(AiToolContractConsumerAbstractionsVersion)' == ''">10.10.0</AiToolContractConsumerAbstractionsVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="KeelMatrix.AiToolContract" Version="0.1.0-rc.1" />
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.10.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="$(AiToolContractConsumerAbstractionsVersion)" />
   </ItemGroup>
 </Project>

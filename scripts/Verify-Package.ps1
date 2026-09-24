@@ -122,6 +122,38 @@ function Assert-ExactEntries([string[]] $actual, [string[]] $expected, [string] 
     Require (($actualSorted -join "`n") -ceq ($expectedSorted -join "`n")) $message
 }
 
+$projectPaths = @(Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter '*.csproj' -File | Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' } | Sort-Object FullName)
+$projectEvaluations = [System.Collections.Generic.List[object]]::new()
+foreach ($projectPath in $projectPaths) {
+    $evaluationOutput = & dotnet msbuild $projectPath.FullName -getProperty:IsPackable -getProperty:IsShippingProject 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Fail "MSBuild packability evaluation failed for '$($projectPath.FullName)'."
+        continue
+    }
+
+    try {
+        $evaluation = (($evaluationOutput | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine) | ConvertFrom-Json
+        $isPackable = [string]$evaluation.Properties.IsPackable
+        $isShippingProject = [string]$evaluation.Properties.IsShippingProject
+        Write-Host ("PROJECT_PACKABILITY: {0}; IsPackable={1}; IsShippingProject={2}" -f $projectPath.FullName.Substring($repoRoot.Length + 1), $isPackable, $isShippingProject)
+        $projectEvaluations.Add([pscustomobject]@{
+                Path = $projectPath.FullName
+                IsPackable = $isPackable
+                IsShippingProject = $isShippingProject
+            })
+    }
+    catch {
+        Fail "MSBuild packability evaluation for '$($projectPath.FullName)' was not valid JSON: $($_.Exception.Message)"
+    }
+}
+
+$packableProjects = @($projectEvaluations | Where-Object { $_.IsPackable -ceq 'true' })
+$packableShippingProjects = @($packableProjects | Where-Object { $_.IsShippingProject -ceq 'true' })
+Require ($projectEvaluations.Count -eq $projectPaths.Count) 'Packability evaluation did not produce one result for every project.'
+Require ($packableProjects.Count -eq 1) "Expected exactly one packable project, found $($packableProjects.Count)."
+Require ($packableShippingProjects.Count -eq 1 -and $packableShippingProjects[0].Path -eq $project) 'Expected exactly one packable shipping project, and it must be the shipping library.'
+Write-Host ("PACKABLE_PROJECT_COUNT: {0}; PACKABLE_SHIPPING_PROJECT_COUNT: {1}" -f $packableProjects.Count, $packableShippingProjects.Count)
+
 Write-Host "Package gate root: $repoRoot"
 Write-Host 'PACKAGE_ICON_CHECK: repository-root icon.png is required by the pack configuration at src/KeelMatrix.AiToolContract/KeelMatrix.AiToolContract.csproj:12 and :26.'
 $rootIconPath = Join-Path $repoRoot 'icon.png'

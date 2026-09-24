@@ -306,13 +306,24 @@ public sealed class ContractTests
         var newBaseline = testCase.ReturnSchema ? Capture("{\"type\":\"object\"}", schemas.NewSchema) : Capture(schemas.NewSchema);
         var diff = AiToolContractVerifier.Compare(oldBaseline, newBaseline);
         var expected = testCase.ReturnSchema ? testCase.Rule.Return : testCase.Rule.Input;
+        var mixedRequiredReplacement = testCase.Rule.PropertyName == nameof(NormalizedSchema.Required) && testCase.Rule.Direction == SchemaTransitionDirection.Changed;
 
         Assert.False(diff.IsClean, testCase.Name);
-        Assert.Equal(expected.Compatibility, diff.Compatibility);
-        Assert.Single(diff.Changes);
+        Assert.Equal(mixedRequiredReplacement ? AiToolCompatibility.Breaking : expected.Compatibility, diff.Compatibility);
+        Assert.Equal(mixedRequiredReplacement ? 3 : 1, diff.Changes.Count);
         Assert.Equal(expected.Kind, diff.Changes[0].Kind);
         Assert.Equal(expected.Compatibility, diff.Changes[0].Compatibility);
         Assert.Equal(testCase.ExpectedPath, diff.Changes[0].Path);
+        if (mixedRequiredReplacement)
+        {
+            var requiredKind = testCase.ReturnSchema ? AiToolChangeKind.ReturnSchemaBreaking : AiToolChangeKind.RequiredParameterAdded;
+            var optionalKind = testCase.ReturnSchema ? AiToolChangeKind.ReturnSchemaAdditive : AiToolChangeKind.OptionalParameterAdded;
+            Assert.Contains(diff.Changes, change => change.Kind == requiredKind && change.Compatibility == AiToolCompatibility.Breaking);
+            Assert.Contains(diff.Changes, change => change.Kind == optionalKind && change.Compatibility == AiToolCompatibility.Additive);
+            Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Accept(newBaseline, diff));
+            Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.AcceptWithBreakingReview(newBaseline, diff));
+            return;
+        }
         if (expected.Unsupported)
         {
             AssertUnsupported(diff);
@@ -427,6 +438,89 @@ public sealed class ContractTests
         Assert.Equal(AiToolCompatibility.Risky, diff.Changes[0].Compatibility);
         Assert.Equal("$.items", diff.Changes[0].Path);
         Assert.Contains(diff.Diagnostics, static diagnostic => diagnostic.Kind == AiToolDiagnosticKind.UnsupportedClassification);
+    }
+
+    [Fact]
+    public void MixedRequiredReplacementReportsUnsupportedAndBothSupportedComponents()
+    {
+        var baseline = Capture("{\"type\":\"object\",\"properties\":{\"first\":{\"type\":\"string\"},\"second\":{\"type\":\"string\"}},\"required\":[\"first\"]}");
+        var candidate = Capture("{\"type\":\"object\",\"properties\":{\"first\":{\"type\":\"string\"},\"second\":{\"type\":\"string\"}},\"required\":[\"second\"]}");
+
+        var diff = AiToolContractVerifier.Compare(baseline, candidate);
+
+        Assert.False(diff.IsClean);
+        Assert.Equal(AiToolCompatibility.Breaking, diff.Compatibility);
+        Assert.Equal(3, diff.Changes.Count);
+        Assert.Collection(
+            diff.Changes,
+            change =>
+            {
+                Assert.Equal(AiToolChangeKind.Unsupported, change.Kind);
+                Assert.Equal(AiToolCompatibility.Risky, change.Compatibility);
+                Assert.Equal("$.required", change.Path);
+            },
+            change =>
+            {
+                Assert.Equal(AiToolChangeKind.RequiredParameterAdded, change.Kind);
+                Assert.Equal(AiToolCompatibility.Breaking, change.Compatibility);
+                Assert.Equal("$.required", change.Path);
+            },
+            change =>
+            {
+                Assert.Equal(AiToolChangeKind.OptionalParameterAdded, change.Kind);
+                Assert.Equal(AiToolCompatibility.Additive, change.Compatibility);
+                Assert.Equal("$.required", change.Path);
+            });
+
+        var withinLimit = AiToolContractVerifier.Compare(baseline, candidate, new AiToolContractLimits { MaxChanges = 3 });
+        Assert.Equal(3, withinLimit.Changes.Count);
+        Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Compare(baseline, candidate, new AiToolContractLimits { MaxChanges = 1 }));
+    }
+
+    [Fact]
+    public void CaseDistinctUserPropertiesRemainDistinctUnsupportedTransitions()
+    {
+        var baseline = Capture("{\"type\":\"object\",\"properties\":{\"Items\":{\"type\":\"array\"},\"items\":{\"type\":\"array\"}}}");
+        var candidate = Capture("{\"type\":\"object\",\"properties\":{\"Items\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"items\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}}}}");
+
+        var diff = AiToolContractVerifier.Compare(baseline, candidate, new AiToolContractLimits { MaxChanges = 2 });
+
+        Assert.Equal(2, diff.Changes.Count);
+        Assert.All(diff.Changes, static change => Assert.Equal(AiToolChangeKind.Unsupported, change.Kind));
+        Assert.Contains(diff.Changes, static change => change.Path == "$.properties.Items.items");
+        Assert.Contains(diff.Changes, static change => change.Path == "$.properties.items.items");
+        Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Compare(baseline, candidate, new AiToolContractLimits { MaxChanges = 1 }));
+    }
+
+    [Theory]
+    [InlineData("Reference")]
+    [InlineData("Description")]
+    [InlineData("HasDefault")]
+    [InlineData("DefaultValue")]
+    [InlineData("Format")]
+    [InlineData("Types")]
+    [InlineData("Properties")]
+    [InlineData("Required")]
+    [InlineData("EnumValues")]
+    [InlineData("Items")]
+    [InlineData("Minimum")]
+    [InlineData("Maximum")]
+    [InlineData("ExclusiveMinimum")]
+    [InlineData("ExclusiveMaximum")]
+    [InlineData("MinLength")]
+    [InlineData("MaxLength")]
+    [InlineData("MinItems")]
+    [InlineData("MaxItems")]
+    public void ReservedModelTokenPropertyNamesArePreservedInReportedPaths(string propertyName)
+    {
+        var baseline = Capture("{\"type\":\"object\",\"properties\":{\"" + propertyName + "\":{\"type\":\"array\"}}}");
+        var candidate = Capture("{\"type\":\"object\",\"properties\":{\"" + propertyName + "\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}}");
+
+        var diff = AiToolContractVerifier.Compare(baseline, candidate);
+
+        Assert.Single(diff.Changes);
+        Assert.Equal(AiToolChangeKind.Unsupported, diff.Changes[0].Kind);
+        Assert.Equal("$.properties." + propertyName + ".items", diff.Changes[0].Path);
     }
 
     [Fact]

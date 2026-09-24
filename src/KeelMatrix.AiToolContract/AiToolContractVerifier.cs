@@ -19,8 +19,9 @@ public static class AiToolContractVerifier
 
         var changes = new List<AiToolChange>();
         var diagnostics = new List<AiToolContractDiagnostic>();
+        var unsupportedKeys = new HashSet<UnsupportedSemanticKey>();
         foreach (var failure in SchemaTransitionRules.CoverageFailures)
-            AddUnsupported(changes, diagnostics, effectiveLimits, "$", "$.normalizedModel", "The normalized schema model is not fully covered by explicit transition rules: " + failure);
+            AddUnsupported(changes, diagnostics, effectiveLimits, unsupportedKeys, "$", "$.normalizedModel", "The normalized schema model is not fully covered by explicit transition rules: " + failure, null);
 
         var oldTools = baseline.Tools.ToDictionary(static tool => tool.Name, StringComparer.Ordinal);
         var newTools = candidate.Tools.ToDictionary(static tool => tool.Name, StringComparer.Ordinal);
@@ -51,14 +52,14 @@ public static class AiToolContractVerifier
                 Add(changes, effectiveLimits, new AiToolChange(AiToolChangeKind.ApprovalSafetyMetadataChanged, compatibility, oldTool.Name, "$.requiresApproval", "Approval/safety metadata changed and requires explicit review."));
             }
 
-            CompareSchema(oldTool.InputSchema, newTool.InputSchema, oldTool.Name, "$", true, changes, diagnostics, effectiveLimits);
+            CompareSchema(oldTool.InputSchema, newTool.InputSchema, oldTool.Name, "$", true, changes, diagnostics, effectiveLimits, unsupportedKeys, CreateRootNode(true));
 
             if (oldTool.ReturnSchema is null && newTool.ReturnSchema is not null)
                 Add(changes, effectiveLimits, new AiToolChange(AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, oldTool.Name, "$.returnSchema", "A return schema was added."));
             else if (oldTool.ReturnSchema is not null && newTool.ReturnSchema is null)
                 Add(changes, effectiveLimits, new AiToolChange(AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, oldTool.Name, "$.returnSchema", "The return schema was removed."));
             else if (oldTool.ReturnSchema is not null && newTool.ReturnSchema is not null)
-                CompareSchema(oldTool.ReturnSchema, newTool.ReturnSchema, oldTool.Name, "$.returnSchema", false, changes, diagnostics, effectiveLimits);
+                CompareSchema(oldTool.ReturnSchema, newTool.ReturnSchema, oldTool.Name, "$.returnSchema", false, changes, diagnostics, effectiveLimits, unsupportedKeys, CreateRootNode(false));
         }
 
         if (changes.Count > 0)
@@ -104,12 +105,13 @@ public static class AiToolContractVerifier
         return candidate;
     }
 
-    private static void CompareSchema(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
+    private static void CompareSchema(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, HashSet<UnsupportedSemanticKey> unsupportedKeys, SchemaNodeIdentity nodeIdentity)
     {
-        foreach (var transition in SchemaTransitionRules.FindTransitions(oldSchema, newSchema))
+        var transitions = SchemaTransitionRules.FindTransitions(oldSchema, newSchema);
+        foreach (var transition in transitions)
         {
             if (!SchemaTransitionRules.TryGetRule(transition.PropertyName, transition.Direction, out var rule) || (input ? rule!.Input : rule!.Return).Unsupported)
-                AddUnsupported(changes, diagnostics, limits, toolName, path + "." + transition.PropertyName, "The normalized schema transition '" + transition.PropertyName + ":" + transition.Direction + "' has no explicit compatibility rule.");
+                AddUnsupported(changes, diagnostics, limits, unsupportedKeys, toolName, AppendModelPropertyPath(path, transition.PropertyName), "The normalized schema transition '" + transition.PropertyName + ":" + transition.Direction + "' has no explicit compatibility rule.", CreateUnsupportedKey(toolName, nodeIdentity, transition.PropertyName, transition.Direction));
         }
 
         if (oldSchema.SemanticallyEquals(newSchema))
@@ -119,19 +121,19 @@ public static class AiToolContractVerifier
         // change remains review-only so comparison cannot invent reference semantics.
         if (oldSchema.Reference is not null || newSchema.Reference is not null)
         {
-            AddUnsupported(changes, diagnostics, limits, toolName, path + ".$ref", "Reference target or sibling schema changed and requires review.");
+            AddUnsupported(changes, diagnostics, limits, unsupportedKeys, toolName, path + ".$ref", "Reference target or sibling schema changed and requires review.", CreateUnsupportedKey(toolName, nodeIdentity, nameof(NormalizedSchema.Reference), FindDirection(transitions, nameof(NormalizedSchema.Reference))));
             return;
         }
 
         CompareDescription(oldSchema, newSchema, toolName, path, changes, limits);
-        CompareDefault(oldSchema, newSchema, toolName, path, changes, diagnostics, limits);
-        CompareFormat(oldSchema, newSchema, toolName, path, changes, diagnostics, limits);
+        CompareDefault(oldSchema, newSchema, toolName, path, transitions, changes, diagnostics, limits, unsupportedKeys, nodeIdentity);
+        CompareFormat(oldSchema, newSchema, toolName, path, transitions, changes, diagnostics, limits, unsupportedKeys, nodeIdentity);
         CompareType(oldSchema, newSchema, toolName, path, input, changes, limits);
-        CompareEnum(oldSchema, newSchema, toolName, path, input, changes, diagnostics, limits);
+        CompareEnum(oldSchema, newSchema, toolName, path, input, transitions, changes, diagnostics, limits, unsupportedKeys, nodeIdentity);
         CompareConstraints(oldSchema, newSchema, toolName, path, input, changes, limits);
-        CompareObjectProperties(oldSchema, newSchema, toolName, path, input, changes, diagnostics, limits);
+        CompareObjectProperties(oldSchema, newSchema, toolName, path, input, changes, diagnostics, limits, unsupportedKeys, nodeIdentity);
         CompareRequired(oldSchema, newSchema, toolName, path, input, changes, limits);
-        CompareItems(oldSchema, newSchema, toolName, path, input, changes, diagnostics, limits);
+        CompareItems(oldSchema, newSchema, toolName, path, input, transitions, changes, diagnostics, limits, unsupportedKeys, nodeIdentity);
     }
 
     private static void CompareDescription(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, List<AiToolChange> changes, AiToolContractLimits limits)
@@ -140,21 +142,21 @@ public static class AiToolContractVerifier
             Add(changes, limits, new AiToolChange(AiToolChangeKind.DescriptionChanged, AiToolCompatibility.Risky, toolName, path + ".description", "Schema description changed; model behavior may change."));
     }
 
-    private static void CompareDefault(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
+    private static void CompareDefault(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, IReadOnlyList<SchemaTransition> transitions, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, HashSet<UnsupportedSemanticKey> unsupportedKeys, SchemaNodeIdentity nodeIdentity)
     {
         if (oldSchema.HasDefault == newSchema.HasDefault && (!oldSchema.HasDefault || oldSchema.DefaultValue!.SemanticallyEquals(newSchema.DefaultValue!)))
             return;
-        AddUnsupported(changes, diagnostics, limits, toolName, path + ".default", "Default value changed; comparison is review-only for this schema metadata.");
+        AddUnsupported(changes, diagnostics, limits, unsupportedKeys, toolName, path + ".default", "Default value changed; comparison is review-only for this schema metadata.", CreateUnsupportedKey(toolName, nodeIdentity, nameof(NormalizedSchema.DefaultValue), FindDirection(transitions, nameof(NormalizedSchema.HasDefault), nameof(NormalizedSchema.DefaultValue))));
     }
 
-    private static void CompareFormat(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
+    private static void CompareFormat(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, IReadOnlyList<SchemaTransition> transitions, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, HashSet<UnsupportedSemanticKey> unsupportedKeys, SchemaNodeIdentity nodeIdentity)
     {
         if (string.Equals(oldSchema.Format, newSchema.Format, StringComparison.Ordinal))
             return;
-        AddUnsupported(changes, diagnostics, limits, toolName, path + ".format", "Format changed; comparison is review-only for this schema metadata.");
+        AddUnsupported(changes, diagnostics, limits, unsupportedKeys, toolName, path + ".format", "Format changed; comparison is review-only for this schema metadata.", CreateUnsupportedKey(toolName, nodeIdentity, nameof(NormalizedSchema.Format), FindDirection(transitions, nameof(NormalizedSchema.Format))));
     }
 
-    private static void CompareObjectProperties(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
+    private static void CompareObjectProperties(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, HashSet<UnsupportedSemanticKey> unsupportedKeys, SchemaNodeIdentity nodeIdentity)
     {
         foreach (var oldProperty in oldSchema.Properties)
         {
@@ -165,7 +167,7 @@ public static class AiToolContractVerifier
             }
             else
             {
-                CompareSchema(oldProperty.Value, newProperty, toolName, path + ".properties." + oldProperty.Key, input, changes, diagnostics, limits);
+                CompareSchema(oldProperty.Value, newProperty, toolName, path + ".properties." + oldProperty.Key, input, changes, diagnostics, limits, unsupportedKeys, nodeIdentity.Property(oldProperty.Key));
             }
         }
 
@@ -211,16 +213,16 @@ public static class AiToolContractVerifier
         }
     }
 
-    private static void CompareItems(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
+    private static void CompareItems(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, IReadOnlyList<SchemaTransition> transitions, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, HashSet<UnsupportedSemanticKey> unsupportedKeys, SchemaNodeIdentity nodeIdentity)
     {
         if (oldSchema.Items is null && newSchema.Items is null)
             return;
         if (oldSchema.Items is null || newSchema.Items is null)
         {
-            AddUnsupported(changes, diagnostics, limits, toolName, path + ".items", "Array item schema presence changed and requires review.");
+            AddUnsupported(changes, diagnostics, limits, unsupportedKeys, toolName, path + ".items", "Array item schema presence changed and requires review.", CreateUnsupportedKey(toolName, nodeIdentity, nameof(NormalizedSchema.Items), FindDirection(transitions, nameof(NormalizedSchema.Items))));
             return;
         }
-        CompareSchema(oldSchema.Items, newSchema.Items, toolName, path + ".items", input, changes, diagnostics, limits);
+        CompareSchema(oldSchema.Items, newSchema.Items, toolName, path + ".items", input, changes, diagnostics, limits, unsupportedKeys, nodeIdentity.Items());
     }
 
     private static void CompareType(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
@@ -243,7 +245,7 @@ public static class AiToolContractVerifier
         Add(changes, limits, new AiToolChange(kind, compatibility, toolName, path + ".type", "Schema type " + (narrowed ? "narrowed" : widened ? "widened" : "changed") + "."));
     }
 
-    private static void CompareEnum(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
+    private static void CompareEnum(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, IReadOnlyList<SchemaTransition> transitions, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, HashSet<UnsupportedSemanticKey> unsupportedKeys, SchemaNodeIdentity nodeIdentity)
     {
         if (oldSchema.EnumValues is null && newSchema.EnumValues is null)
             return;
@@ -254,7 +256,7 @@ public static class AiToolContractVerifier
         {
             if (ValuesEqual(oldSchema.EnumValues!, newSchema.EnumValues!))
                 return;
-            AddUnsupported(changes, diagnostics, limits, toolName, path + ".enum", "Enum values changed in both directions and cannot be classified safely.");
+            AddUnsupported(changes, diagnostics, limits, unsupportedKeys, toolName, path + ".enum", "Enum values changed in both directions and cannot be classified safely.", CreateUnsupportedKey(toolName, nodeIdentity, nameof(NormalizedSchema.EnumValues), FindDirection(transitions, nameof(NormalizedSchema.EnumValues))));
         }
         else if (narrowed)
             Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.EnumNarrowed : AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, toolName, path + ".enum", "Enum values were narrowed."));
@@ -309,50 +311,149 @@ public static class AiToolContractVerifier
     private static bool IsSubset(IReadOnlyList<string> subset, IReadOnlyList<string> superset) =>
         subset.All(value => superset.Contains(value, StringComparer.Ordinal));
 
-    private static void AddUnsupported(List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, string toolName, string path, string message)
+    private static void AddUnsupported(List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, HashSet<UnsupportedSemanticKey> unsupportedKeys, string toolName, string path, string message, UnsupportedSemanticKey? semanticKey)
     {
-        var canonicalPath = string.Equals(toolName, "$", StringComparison.Ordinal) ? path : CanonicalUnsupportedPath(path);
-        if (!string.Equals(toolName, "$", StringComparison.Ordinal) && changes.Any(change =>
-            change.Kind == AiToolChangeKind.Unsupported &&
-            string.Equals(change.ToolName, toolName, StringComparison.Ordinal) &&
-            string.Equals(CanonicalUnsupportedPath(change.Path), canonicalPath, StringComparison.Ordinal)))
+        if (semanticKey.HasValue && !unsupportedKeys.Add(semanticKey.Value))
             return;
 
-        Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, canonicalPath, message));
+        Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path, message));
         diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, message));
     }
 
     private static void Add(List<AiToolChange> changes, AiToolContractLimits limits, AiToolChange change)
     {
-        if (change.Kind != AiToolChangeKind.Unsupported && changes.Any(existing =>
-            existing.Kind == AiToolChangeKind.Unsupported &&
-            string.Equals(existing.ToolName, change.ToolName, StringComparison.Ordinal) &&
-            string.Equals(CanonicalUnsupportedPath(existing.Path), CanonicalUnsupportedPath(change.Path), StringComparison.Ordinal)))
-            return;
-
         if (changes.Count >= limits.MaxChanges)
             throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, "The comparison exceeds the configured change-count limit."));
         changes.Add(change);
     }
 
-    private static string CanonicalUnsupportedPath(string path) =>
-        path
-            .Replace(".Reference", ".$ref")
-            .Replace(".Description", ".description")
-            .Replace(".HasDefault", ".default")
-            .Replace(".DefaultValue", ".default")
-            .Replace(".Format", ".format")
-            .Replace(".Types", ".type")
-            .Replace(".Properties", ".properties")
-            .Replace(".Required", ".required")
-            .Replace(".EnumValues", ".enum")
-            .Replace(".Items", ".items")
-            .Replace(".Minimum", ".minimum")
-            .Replace(".Maximum", ".maximum")
-            .Replace(".ExclusiveMinimum", ".exclusiveMinimum")
-            .Replace(".ExclusiveMaximum", ".exclusiveMaximum")
-            .Replace(".MinLength", ".minLength")
-            .Replace(".MaxLength", ".maxLength")
-            .Replace(".MinItems", ".minItems")
-            .Replace(".MaxItems", ".maxItems");
+    private static SchemaNodeIdentity CreateRootNode(bool input) =>
+        new(null, new SchemaNodeSegment(input ? SchemaNodeSegmentKind.Input : SchemaNodeSegmentKind.Return, null));
+
+    private static SchemaTransitionDirection FindDirection(IReadOnlyList<SchemaTransition> transitions, params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            var transition = transitions.FirstOrDefault(candidate => string.Equals(candidate.PropertyName, propertyName, StringComparison.Ordinal));
+            if (transition is not null)
+                return transition.Direction;
+        }
+        return SchemaTransitionDirection.Changed;
+    }
+
+    private static UnsupportedSemanticKey CreateUnsupportedKey(string toolName, SchemaNodeIdentity nodeIdentity, string propertyName, SchemaTransitionDirection direction) =>
+        new(toolName, nodeIdentity, CanonicalModelPropertyName(propertyName), direction);
+
+    private static string AppendModelPropertyPath(string path, string propertyName) =>
+        path + "." + CanonicalModelPropertyName(propertyName);
+
+    private static string CanonicalModelPropertyName(string propertyName) => propertyName switch
+    {
+        nameof(NormalizedSchema.Reference) => "$ref",
+        nameof(NormalizedSchema.Description) => "description",
+        nameof(NormalizedSchema.HasDefault) or nameof(NormalizedSchema.DefaultValue) => "default",
+        nameof(NormalizedSchema.Format) => "format",
+        nameof(NormalizedSchema.Types) => "type",
+        nameof(NormalizedSchema.Properties) => "properties",
+        nameof(NormalizedSchema.Required) => "required",
+        nameof(NormalizedSchema.EnumValues) => "enum",
+        nameof(NormalizedSchema.Items) => "items",
+        _ => char.ToLowerInvariant(propertyName[0]) + propertyName.Substring(1)
+    };
+
+    private enum SchemaNodeSegmentKind
+    {
+        Input,
+        Return,
+        Property,
+        Items
+    }
+
+    private readonly struct SchemaNodeSegment : IEquatable<SchemaNodeSegment>
+    {
+        internal SchemaNodeSegment(SchemaNodeSegmentKind kind, string? value)
+        {
+            Kind = kind;
+            Value = value;
+        }
+
+        private SchemaNodeSegmentKind Kind { get; }
+        private string? Value { get; }
+
+        public bool Equals(SchemaNodeSegment other) => Kind == other.Kind && string.Equals(Value, other.Value, StringComparison.Ordinal);
+
+        public override bool Equals(object? obj) => obj is SchemaNodeSegment other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                return ((int)Kind * 397) ^ (Value?.GetHashCode() ?? 0);
+            }
+        }
+    }
+
+    private sealed class SchemaNodeIdentity : IEquatable<SchemaNodeIdentity>
+    {
+        internal SchemaNodeIdentity(SchemaNodeIdentity? parent, SchemaNodeSegment segment)
+        {
+            Parent = parent;
+            Segment = segment;
+        }
+
+        private SchemaNodeIdentity? Parent { get; }
+        private SchemaNodeSegment Segment { get; }
+
+        internal SchemaNodeIdentity Property(string name) => new(this, new SchemaNodeSegment(SchemaNodeSegmentKind.Property, name));
+
+        internal SchemaNodeIdentity Items() => new(this, new SchemaNodeSegment(SchemaNodeSegmentKind.Items, null));
+
+        public bool Equals(SchemaNodeIdentity? other) =>
+            other is not null && Segment.Equals(other.Segment) && (Parent is null ? other.Parent is null : Parent.Equals(other.Parent));
+
+        public override bool Equals(object? obj) => obj is SchemaNodeIdentity other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                return ((Parent?.GetHashCode() ?? 0) * 397) ^ Segment.GetHashCode();
+            }
+        }
+    }
+
+    private readonly struct UnsupportedSemanticKey : IEquatable<UnsupportedSemanticKey>
+    {
+        internal UnsupportedSemanticKey(string toolName, SchemaNodeIdentity nodeIdentity, string modelProperty, SchemaTransitionDirection direction)
+        {
+            ToolName = toolName;
+            NodeIdentity = nodeIdentity;
+            ModelProperty = modelProperty;
+            Direction = direction;
+        }
+
+        private string ToolName { get; }
+        private SchemaNodeIdentity NodeIdentity { get; }
+        private string ModelProperty { get; }
+        private SchemaTransitionDirection Direction { get; }
+
+        public bool Equals(UnsupportedSemanticKey other) =>
+            string.Equals(ToolName, other.ToolName, StringComparison.Ordinal) &&
+            NodeIdentity.Equals(other.NodeIdentity) &&
+            string.Equals(ModelProperty, other.ModelProperty, StringComparison.Ordinal) &&
+            Direction == other.Direction;
+
+        public override bool Equals(object? obj) => obj is UnsupportedSemanticKey other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                var hash = ToolName.GetHashCode();
+                hash = (hash * 397) ^ NodeIdentity.GetHashCode();
+                hash = (hash * 397) ^ ModelProperty.GetHashCode();
+                return (hash * 397) ^ (int)Direction;
+            }
+        }
+    }
 }
