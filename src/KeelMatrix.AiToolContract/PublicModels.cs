@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 
 namespace KeelMatrix.AiToolContract;
 
@@ -95,11 +95,23 @@ public sealed class AiToolContractDiagnostic
 public sealed class AiToolContractTool
 {
     internal AiToolContractTool(string name, string? description, string inputSchemaJson, string? returnSchemaJson, bool requiresApproval)
+        : this(
+            name,
+            description,
+            SchemaNormalizer.Normalize(inputSchemaJson, AiToolContractLimits.Default),
+            returnSchemaJson is null ? null : SchemaNormalizer.Normalize(returnSchemaJson, AiToolContractLimits.Default),
+            requiresApproval)
     {
-        Name = name;
+    }
+
+    internal AiToolContractTool(string name, string? description, NormalizedSchema inputSchema, NormalizedSchema? returnSchema, bool requiresApproval)
+    {
+        Name = name ?? throw new ArgumentNullException(nameof(name));
         Description = description;
-        InputSchemaJson = inputSchemaJson;
-        ReturnSchemaJson = returnSchemaJson;
+        InputSchema = inputSchema ?? throw new ArgumentNullException(nameof(inputSchema));
+        ReturnSchema = returnSchema;
+        InputSchemaJson = inputSchema.ToCanonicalJson();
+        ReturnSchemaJson = returnSchema?.ToCanonicalJson();
         RequiresApproval = requiresApproval;
     }
 
@@ -112,8 +124,12 @@ public sealed class AiToolContractTool
     /// <summary>Canonical input JSON Schema.</summary>
     public string InputSchemaJson { get; }
 
+    internal NormalizedSchema InputSchema { get; }
+
     /// <summary>Canonical return JSON Schema, if supplied.</summary>
     public string? ReturnSchemaJson { get; }
+
+    internal NormalizedSchema? ReturnSchema { get; }
 
     /// <summary>Whether the current framework abstraction explicitly requires approval.</summary>
     public bool RequiresApproval { get; }

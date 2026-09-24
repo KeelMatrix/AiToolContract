@@ -6,8 +6,9 @@ This file records consumer-facing changes to KeelMatrix.AiToolContract.
 
 ### Fixed
 
-- Closed unsupported JSON Schema keywords and malformed shapes by construction, including unknown members and empty applicator arrays.
-- Kept reference and definition changes unsupported even when another schema change is classified, and canonicalized representation-equivalent JSON numbers without reporting drift.
+- Replaced the open-ended keyword comparison path with one closed normalized schema model shared by capture, baseline parsing, and comparison.
+- Captured the `description`, `default`, and `format` fields emitted by the supported `AIFunctionFactory` dependency endpoints, validated `$ref` URI-references without dereferencing, and represented arbitrary JSON numeric exponents without `long` exhaustion.
+- Required every version-one root and tool envelope member and rejected the OpenAPI `nullable` extension in favor of standard JSON Schema type arrays.
 
 ## [0.1.0-rc.1]
 

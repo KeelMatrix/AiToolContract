@@ -10,6 +10,8 @@
 
 Capture reads `Name`, `Description`, `JsonSchema`, `ReturnJsonSchema`, and the explicit `ApprovalRequiredAIFunction` wrapper marker. It never calls `InvokeAsync`, the underlying method, a model, a provider, or a network endpoint. Framework schema properties can be lazy, so the framework implementation may perform its own metadata generation when a property is read; this package does not execute the function or supply arguments.
 
+Schema normalization is a closed repository-owned boundary. The supported framework-emitted fields and their comparison classifications are listed in the [JSON Schema support matrix](JSON-SCHEMA-SUPPORT.md); an unlisted keyword fails during capture or baseline parsing rather than being compared as raw JSON.
+
 ## Verify a later catalog
 
 ```csharp
@@ -28,4 +30,3 @@ Verification is read-only. It does not update, overwrite, stage, or accept a bas
 ## Accept an update explicitly
 
 After a human or policy review, call `AiToolContractVerifier.Accept` for a candidate with no breaking or unsupported differences, or `AcceptWithBreakingReview` after an explicit breaking-change review. Serialize the returned baseline yourself. Neither method writes a file or updates a repository.
-

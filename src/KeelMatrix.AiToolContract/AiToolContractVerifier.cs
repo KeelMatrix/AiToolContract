@@ -1,5 +1,4 @@
-using System.Text.Json;
-using Microsoft.Extensions.AI;
+﻿using Microsoft.Extensions.AI;
 
 namespace KeelMatrix.AiToolContract;
 
@@ -22,13 +21,6 @@ public static class AiToolContractVerifier
         var diagnostics = new List<AiToolContractDiagnostic>();
         var oldTools = baseline.Tools.ToDictionary(static tool => tool.Name, StringComparer.Ordinal);
         var newTools = candidate.Tools.ToDictionary(static tool => tool.Name, StringComparer.Ordinal);
-        var reportedUnsupported = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var tool in oldTools.Values.Concat(newTools.Values))
-        {
-            ReportUnsupportedSchema(tool.InputSchemaJson, tool.Name, "$", changes, diagnostics, reportedUnsupported, effectiveLimits);
-            if (tool.ReturnSchemaJson is not null)
-                ReportUnsupportedSchema(tool.ReturnSchemaJson, tool.Name, "$.returnSchema", changes, diagnostics, reportedUnsupported, effectiveLimits);
-        }
 
         foreach (var oldTool in oldTools.Values)
         {
@@ -56,20 +48,14 @@ public static class AiToolContractVerifier
                 Add(changes, effectiveLimits, new AiToolChange(AiToolChangeKind.ApprovalSafetyMetadataChanged, compatibility, oldTool.Name, "$.requiresApproval", "Approval/safety metadata changed and requires explicit review."));
             }
 
-            using var oldInput = ParseSchemaForComparison(oldTool.InputSchemaJson, effectiveLimits);
-            using var newInput = ParseSchemaForComparison(newTool.InputSchemaJson, effectiveLimits);
-            CompareSchema(oldInput.RootElement, newInput.RootElement, oldTool.Name, "$", true, changes, diagnostics, effectiveLimits);
+            CompareSchema(oldTool.InputSchema, newTool.InputSchema, oldTool.Name, "$", true, changes, diagnostics, effectiveLimits);
 
-            if (oldTool.ReturnSchemaJson is null && newTool.ReturnSchemaJson is not null)
+            if (oldTool.ReturnSchema is null && newTool.ReturnSchema is not null)
                 Add(changes, effectiveLimits, new AiToolChange(AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, oldTool.Name, "$.returnSchema", "A return schema was added."));
-            else if (oldTool.ReturnSchemaJson is not null && newTool.ReturnSchemaJson is null)
+            else if (oldTool.ReturnSchema is not null && newTool.ReturnSchema is null)
                 Add(changes, effectiveLimits, new AiToolChange(AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, oldTool.Name, "$.returnSchema", "The return schema was removed."));
-            else if (oldTool.ReturnSchemaJson is not null && newTool.ReturnSchemaJson is not null)
-            {
-                using var oldReturn = ParseSchemaForComparison(oldTool.ReturnSchemaJson, effectiveLimits);
-                using var newReturn = ParseSchemaForComparison(newTool.ReturnSchemaJson, effectiveLimits);
-                CompareSchema(oldReturn.RootElement, newReturn.RootElement, oldTool.Name, "$.returnSchema", false, changes, diagnostics, effectiveLimits);
-            }
+            else if (oldTool.ReturnSchema is not null && newTool.ReturnSchema is not null)
+                CompareSchema(oldTool.ReturnSchema, newTool.ReturnSchema, oldTool.Name, "$.returnSchema", false, changes, diagnostics, effectiveLimits);
         }
 
         if (changes.Count > 0)
@@ -115,91 +101,58 @@ public static class AiToolContractVerifier
         return candidate;
     }
 
-    private static void Add(List<AiToolChange> changes, AiToolContractLimits limits, AiToolChange change)
+    private static void CompareSchema(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
     {
-        if (changes.Count >= limits.MaxChanges)
-            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, "The comparison exceeds the configured change-count limit."));
-        changes.Add(change);
-    }
-
-    private static void ReportUnsupportedSchema(string raw, string toolName, string pathPrefix, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, HashSet<string> reported, AiToolContractLimits limits)
-    {
-        using var document = ParseSchemaForComparison(raw, limits);
-        try
-        {
-            SchemaSemantics.Validate(document.RootElement);
-        }
-        catch (AiToolContractException ex)
-        {
-            var key = toolName + "|" + pathPrefix + "|" + ex.Diagnostic.Kind + "|" + ex.Diagnostic.Message;
-            if (reported.Add(key))
-            {
-                Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, pathPrefix, ex.Diagnostic.Message));
-                diagnostics.Add(ex.Diagnostic);
-            }
-        }
-    }
-
-    private static JsonDocument ParseSchemaForComparison(string raw, AiToolContractLimits limits)
-    {
-        try
-        {
-            return JsonDocument.Parse(raw, new JsonDocumentOptions { MaxDepth = limits.MaxSchemaDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
-        }
-        catch (JsonException ex)
-        {
-            throw new AiToolContractException(new AiToolContractDiagnostic(
-                AiToolContractJson.IsDepthLimit(ex) ? AiToolDiagnosticKind.CanonicalizationOrResourceLimit : AiToolDiagnosticKind.MalformedBaseline,
-                "The stored JSON Schema is " + (AiToolContractJson.IsDepthLimit(ex) ? "too deep" : "malformed") + ": " + ex.Message));
-        }
-    }
-
-    private static void CompareSchema(JsonElement oldSchema, JsonElement newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
-    {
-        var oldRaw = oldSchema.GetRawText();
-        var newRaw = newSchema.GetRawText();
-        if (string.Equals(oldRaw, newRaw, StringComparison.Ordinal))
-            return;
-        if (EquivalentIgnoringSchemaSetOrder(oldSchema, newSchema))
+        if (oldSchema.SemanticallyEquals(newSchema))
             return;
 
-        var changesBefore = changes.Count;
+        // A reference is validated without dereferencing. Any target or sibling
+        // change remains review-only so comparison cannot invent reference semantics.
+        if (oldSchema.Reference is not null || newSchema.Reference is not null)
+        {
+            AddUnsupported(changes, diagnostics, limits, toolName, path + ".$ref", "Reference target or sibling schema changed and requires review.");
+            return;
+        }
+
+        CompareDescription(oldSchema, newSchema, toolName, path, changes, limits);
+        CompareDefault(oldSchema, newSchema, toolName, path, changes, diagnostics, limits);
+        CompareFormat(oldSchema, newSchema, toolName, path, changes, diagnostics, limits);
         CompareType(oldSchema, newSchema, toolName, path, input, changes, limits);
-        CompareNullable(oldSchema, newSchema, toolName, path, input, changes, limits);
         CompareEnum(oldSchema, newSchema, toolName, path, input, changes, limits);
         CompareConstraints(oldSchema, newSchema, toolName, path, input, changes, limits);
-
-        if (oldSchema.ValueKind == JsonValueKind.Object && newSchema.ValueKind == JsonValueKind.Object)
-        {
-            CompareObjectProperties(oldSchema, newSchema, toolName, path, input, changes, diagnostics, limits);
-            CompareRequired(oldSchema, newSchema, toolName, path, input, changes, limits);
-            CompareNestedSchemas(oldSchema, newSchema, toolName, path, input, changes, diagnostics, limits);
-        }
-
-        if (changes.Count == changesBefore && !string.Equals(oldRaw, newRaw, StringComparison.Ordinal))
-        {
-            var change = new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path, "The schema changed in a way that cannot be classified safely.");
-            Add(changes, limits, change);
-            diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, "Schema change at " + path + " requires review because its semantics are unsupported."));
-        }
+        CompareObjectProperties(oldSchema, newSchema, toolName, path, input, changes, diagnostics, limits);
+        CompareRequired(oldSchema, newSchema, toolName, path, input, changes, limits);
+        CompareItems(oldSchema, newSchema, toolName, path, input, changes, diagnostics, limits);
     }
 
-    private static void CompareObjectProperties(JsonElement oldSchema, JsonElement newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
+    private static void CompareDescription(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, List<AiToolChange> changes, AiToolContractLimits limits)
     {
-        var oldProperties = GetObject(oldSchema, "properties");
-        var newProperties = GetObject(newSchema, "properties");
-        if (oldProperties is null && newProperties is null)
-            return;
+        if (!string.Equals(oldSchema.Description, newSchema.Description, StringComparison.Ordinal))
+            Add(changes, limits, new AiToolChange(AiToolChangeKind.DescriptionChanged, AiToolCompatibility.Risky, toolName, path + ".description", "Schema description changed; model behavior may change."));
+    }
 
-        oldProperties ??= new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        newProperties ??= new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        foreach (var oldProperty in oldProperties)
+    private static void CompareDefault(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
+    {
+        if (oldSchema.HasDefault == newSchema.HasDefault && (!oldSchema.HasDefault || oldSchema.DefaultValue!.SemanticallyEquals(newSchema.DefaultValue!)))
+            return;
+        AddUnsupported(changes, diagnostics, limits, toolName, path + ".default", "Default value changed; comparison is review-only for this schema metadata.");
+    }
+
+    private static void CompareFormat(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
+    {
+        if (string.Equals(oldSchema.Format, newSchema.Format, StringComparison.Ordinal))
+            return;
+        AddUnsupported(changes, diagnostics, limits, toolName, path + ".format", "Format changed; comparison is review-only for this schema metadata.");
+    }
+
+    private static void CompareObjectProperties(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
+    {
+        foreach (var oldProperty in oldSchema.Properties)
         {
-            if (!newProperties.TryGetValue(oldProperty.Key, out var newProperty))
+            if (!newSchema.Properties.TryGetValue(oldProperty.Key, out var newProperty))
             {
                 var kind = input ? AiToolChangeKind.ParameterRemoved : AiToolChangeKind.ReturnSchemaBreaking;
-                var compatibility = AiToolCompatibility.Breaking;
-                Add(changes, limits, new AiToolChange(kind, compatibility, toolName, path + ".properties." + oldProperty.Key, "Property '" + oldProperty.Key + "' was removed."));
+                Add(changes, limits, new AiToolChange(kind, AiToolCompatibility.Breaking, toolName, path + ".properties." + oldProperty.Key, "Property '" + oldProperty.Key + "' was removed."));
             }
             else
             {
@@ -207,11 +160,11 @@ public static class AiToolContractVerifier
             }
         }
 
-        foreach (var newProperty in newProperties)
+        foreach (var newProperty in newSchema.Properties)
         {
-            if (oldProperties.ContainsKey(newProperty.Key))
+            if (oldSchema.Properties.ContainsKey(newProperty.Key))
                 continue;
-            var required = IsRequired(newSchema, newProperty.Key);
+            var required = newSchema.Required.Contains(newProperty.Key, StringComparer.Ordinal);
             if (!input)
             {
                 var kind = required ? AiToolChangeKind.ReturnSchemaBreaking : AiToolChangeKind.ReturnSchemaAdditive;
@@ -229,133 +182,79 @@ public static class AiToolContractVerifier
         }
     }
 
-    private static void CompareRequired(JsonElement oldSchema, JsonElement newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
+    private static void CompareRequired(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
     {
-        var oldRequired = GetStringSet(oldSchema, "required");
-        var newRequired = GetStringSet(newSchema, "required");
-        foreach (var name in newRequired.Except(oldRequired, StringComparer.Ordinal))
+        foreach (var name in newSchema.Required.Except(oldSchema.Required, StringComparer.Ordinal))
         {
-            if (GetObject(oldSchema, "properties")?.ContainsKey(name) == true)
+            if (oldSchema.Properties.ContainsKey(name))
                 Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.RequiredParameterAdded : AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, toolName, path + ".required", "Property '" + name + "' became required."));
         }
-        foreach (var name in oldRequired.Except(newRequired, StringComparer.Ordinal))
+        foreach (var name in oldSchema.Required.Except(newSchema.Required, StringComparer.Ordinal))
         {
-            if (input)
-                Add(changes, limits, new AiToolChange(AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, toolName, path + ".required", "Parameter '" + name + "' is no longer required."));
-            else
-                Add(changes, limits, new AiToolChange(AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, toolName, path + ".required", "Return property '" + name + "' is no longer required."));
+            var kind = input ? AiToolChangeKind.OptionalParameterAdded : AiToolChangeKind.ReturnSchemaAdditive;
+            Add(changes, limits, new AiToolChange(kind, AiToolCompatibility.Additive, toolName, path + ".required", input ? "Parameter '" + name + "' is no longer required." : "Return property '" + name + "' is no longer required."));
         }
     }
 
-    private static void CompareNestedSchemas(JsonElement oldSchema, JsonElement newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
+    private static void CompareItems(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits)
     {
-        foreach (var definition in SchemaKeywordMatrix.All.Where(static definition => definition.ChangeHandling == SchemaKeywordChangeHandling.Classified && definition.Keyword == "items"))
+        if (oldSchema.Items is null && newSchema.Items is null)
+            return;
+        if (oldSchema.Items is null || newSchema.Items is null)
         {
-            var name = definition.Keyword;
-            if (oldSchema.TryGetProperty(name, out var oldChild) && newSchema.TryGetProperty(name, out var newChild))
-                CompareSchema(oldChild, newChild, toolName, path + "." + name, input, changes, diagnostics, limits);
-            else if (oldSchema.TryGetProperty(name, out _) != newSchema.TryGetProperty(name, out _))
-            {
-                Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path + "." + name, "A schema keyword changed in an unsupported position."));
-                diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, "Schema keyword " + name + " at " + path + " requires review."));
-            }
+            AddUnsupported(changes, diagnostics, limits, toolName, path + ".items", "Array item schema presence changed and requires review.");
+            return;
         }
-
-        foreach (var definition in SchemaKeywordMatrix.All.Where(static definition => definition.ChangeHandling == SchemaKeywordChangeHandling.Unsupported))
-        {
-            var name = definition.Keyword;
-            var oldExists = oldSchema.TryGetProperty(name, out var oldChild);
-            var newExists = newSchema.TryGetProperty(name, out var newChild);
-            if (oldExists || newExists)
-            {
-                var changed = name == "$ref"
-                    ? !EquivalentIgnoringSchemaSetOrder(oldSchema, newSchema)
-                    : !oldExists || !newExists || !EquivalentIgnoringSchemaSetOrder(oldChild, newChild);
-                if (changed)
-                {
-                    var message = name == "$ref" ? "Reference schema target or sibling changed and requires review." : "Reference/composition schema changes require review.";
-                    Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path + "." + name, message));
-                    diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, "Schema keyword " + name + " changed at " + path + "."));
-                }
-            }
-        }
+        CompareSchema(oldSchema.Items, newSchema.Items, toolName, path + ".items", input, changes, diagnostics, limits);
     }
 
-    private static void CompareType(JsonElement oldSchema, JsonElement newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
+    private static void CompareType(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
     {
-        var oldType = GetTypeSet(oldSchema);
-        var newType = GetTypeSet(newSchema);
-        if (oldType.SetEquals(newType))
+        if (oldSchema.Types.SequenceEqual(newSchema.Types, StringComparer.Ordinal))
             return;
-        oldType.Remove("null");
-        newType.Remove("null");
-        if (oldType.SetEquals(newType))
-            return;
-        var compatibility = AiToolCompatibility.Breaking;
         var kind = input ? AiToolChangeKind.TypeChanged : AiToolChangeKind.ReturnSchemaBreaking;
-        Add(changes, limits, new AiToolChange(kind, compatibility, toolName, path + ".type", "Schema type changed."));
+        Add(changes, limits, new AiToolChange(kind, AiToolCompatibility.Breaking, toolName, path + ".type", "Schema type changed."));
     }
 
-    private static void CompareNullable(JsonElement oldSchema, JsonElement newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
+    private static void CompareEnum(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
     {
-        var oldNullable = GetNullable(oldSchema);
-        var newNullable = GetNullable(newSchema);
-        if (oldNullable == newNullable)
+        if (oldSchema.EnumValues is null || newSchema.EnumValues is null || ValuesEqual(oldSchema.EnumValues, newSchema.EnumValues))
             return;
-        var narrowed = oldNullable && !newNullable;
-        var kind = narrowed ? AiToolChangeKind.ConstraintNarrowed : AiToolChangeKind.ConstraintExpanded;
-        var compatibility = narrowed ? AiToolCompatibility.Breaking : AiToolCompatibility.Additive;
-        if (!input)
-            kind = narrowed ? AiToolChangeKind.ReturnSchemaBreaking : AiToolChangeKind.ReturnSchemaAdditive;
-        Add(changes, limits, new AiToolChange(kind, compatibility, toolName, path, "Nullability changed."));
-    }
-
-    private static void CompareEnum(JsonElement oldSchema, JsonElement newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
-    {
-        var oldEnum = GetArraySet(oldSchema, "enum");
-        var newEnum = GetArraySet(newSchema, "enum");
-        if (oldEnum is null || newEnum is null || oldEnum.SetEquals(newEnum))
-            return;
-        if (newEnum.IsSubsetOf(oldEnum))
+        if (IsSubset(newSchema.EnumValues, oldSchema.EnumValues))
             Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.EnumNarrowed : AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, toolName, path + ".enum", "Enum values were narrowed."));
-        else if (oldEnum.IsSubsetOf(newEnum))
+        else if (IsSubset(oldSchema.EnumValues, newSchema.EnumValues))
             Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.EnumExpanded : AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, toolName, path + ".enum", "Enum values were expanded."));
         else
-        {
             Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path + ".enum", "Enum values changed in both directions and cannot be classified safely."));
-        }
     }
 
-    private static void CompareConstraints(JsonElement oldSchema, JsonElement newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
+    private static void CompareConstraints(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
     {
-        foreach (var name in new[] { "minimum", "exclusiveMinimum", "minLength", "minItems" })
-            CompareBound(oldSchema, newSchema, name, true, toolName, path, input, changes, limits);
-        foreach (var name in new[] { "maximum", "exclusiveMaximum", "maxLength", "maxItems" })
-            CompareBound(oldSchema, newSchema, name, false, toolName, path, input, changes, limits);
+        CompareBound(oldSchema.Minimum, newSchema.Minimum, "minimum", true, toolName, path, input, changes, limits);
+        CompareBound(oldSchema.ExclusiveMinimum, newSchema.ExclusiveMinimum, "exclusiveMinimum", true, toolName, path, input, changes, limits);
+        CompareBound(oldSchema.MinLength, newSchema.MinLength, "minLength", true, toolName, path, input, changes, limits);
+        CompareBound(oldSchema.MinItems, newSchema.MinItems, "minItems", true, toolName, path, input, changes, limits);
+        CompareBound(oldSchema.Maximum, newSchema.Maximum, "maximum", false, toolName, path, input, changes, limits);
+        CompareBound(oldSchema.ExclusiveMaximum, newSchema.ExclusiveMaximum, "exclusiveMaximum", false, toolName, path, input, changes, limits);
+        CompareBound(oldSchema.MaxLength, newSchema.MaxLength, "maxLength", false, toolName, path, input, changes, limits);
+        CompareBound(oldSchema.MaxItems, newSchema.MaxItems, "maxItems", false, toolName, path, input, changes, limits);
     }
 
-    private static void CompareBound(JsonElement oldSchema, JsonElement newSchema, string name, bool lowerBound, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
+    private static void CompareBound(JsonNumber? oldValue, JsonNumber? newValue, string name, bool lowerBound, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
     {
-        var oldExists = oldSchema.TryGetProperty(name, out var oldValue);
-        var newExists = newSchema.TryGetProperty(name, out var newValue);
-        if (!oldExists && !newExists)
+        if (!oldValue.HasValue && !newValue.HasValue)
             return;
         var narrowed = false;
         var expanded = false;
-        if (!oldExists && newExists)
+        if (!oldValue.HasValue && newValue.HasValue)
             narrowed = true;
-        else if (oldExists && !newExists)
+        else if (oldValue.HasValue && !newValue.HasValue)
             expanded = true;
-        else if (TryNumber(oldValue, out var oldNumber) && TryNumber(newValue, out var newNumber))
+        else
         {
-            var comparison = newNumber.CompareTo(oldNumber);
+            var comparison = newValue!.Value.CompareTo(oldValue!.Value);
             narrowed = lowerBound ? comparison > 0 : comparison < 0;
             expanded = lowerBound ? comparison < 0 : comparison > 0;
-        }
-        else if (!string.Equals(oldValue.GetRawText(), newValue.GetRawText(), StringComparison.Ordinal))
-        {
-            Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path + "." + name, "Constraint changed in a non-numeric form."));
-            return;
         }
 
         if (!narrowed && !expanded)
@@ -367,115 +266,22 @@ public static class AiToolContractVerifier
         Add(changes, limits, new AiToolChange(kind, compatibility, toolName, path + "." + name, "Constraint changed."));
     }
 
-    private static Dictionary<string, JsonElement>? GetObject(JsonElement element, string propertyName)
+    private static bool ValuesEqual(IReadOnlyList<NormalizedJsonValue> left, IReadOnlyList<NormalizedJsonValue> right) =>
+        left.Count == right.Count && left.Zip(right, static (a, b) => a.SemanticallyEquals(b)).All(static equal => equal);
+
+    private static bool IsSubset(IReadOnlyList<NormalizedJsonValue> subset, IReadOnlyList<NormalizedJsonValue> superset) =>
+        subset.All(value => superset.Any(value.SemanticallyEquals));
+
+    private static void AddUnsupported(List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, string toolName, string path, string message)
     {
-        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.Object)
-            return null;
-        var result = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        foreach (var item in property.EnumerateObject())
-            result[item.Name] = item.Value;
-        return result;
+        Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path, message));
+        diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, message));
     }
 
-    private static HashSet<string> GetStringSet(JsonElement element, string propertyName)
+    private static void Add(List<AiToolChange> changes, AiToolContractLimits limits, AiToolChange change)
     {
-        var result = new HashSet<string>(StringComparer.Ordinal);
-        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.Array)
-            return result;
-        foreach (var item in property.EnumerateArray())
-            if (item.ValueKind == JsonValueKind.String && item.GetString() is string value)
-                result.Add(value);
-        return result;
-    }
-
-    private static HashSet<string>? GetArraySet(JsonElement element, string propertyName)
-    {
-        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.Array)
-            return null;
-        var result = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var item in property.EnumerateArray())
-            result.Add(CanonicalJson.CanonicalizeValue(item));
-        return result;
-    }
-
-    private static bool IsRequired(JsonElement schema, string name) => GetStringSet(schema, "required").Contains(name);
-
-    private static HashSet<string> GetTypeSet(JsonElement element)
-    {
-        var result = new HashSet<string>(StringComparer.Ordinal);
-        if (!element.TryGetProperty("type", out var type))
-            return result;
-        if (type.ValueKind == JsonValueKind.String && type.GetString() is string value)
-            result.Add(value);
-        else if (type.ValueKind == JsonValueKind.Array)
-            foreach (var item in type.EnumerateArray())
-                if (item.ValueKind == JsonValueKind.String && item.GetString() is string itemValue)
-                    result.Add(itemValue);
-        return result;
-    }
-
-    private static bool GetNullable(JsonElement element)
-    {
-        if (element.TryGetProperty("nullable", out var nullable) && nullable.ValueKind is JsonValueKind.True or JsonValueKind.False)
-            return nullable.GetBoolean();
-        return GetTypeSet(element).Contains("null");
-    }
-
-    private static bool TryNumber(JsonElement element, out CanonicalJson.JsonNumber value)
-    {
-        if (element.ValueKind == JsonValueKind.Number && CanonicalJson.TryParseNumber(element.GetRawText(), out value))
-            return true;
-        value = default;
-        return false;
-    }
-
-    private static bool EquivalentIgnoringSchemaSetOrder(JsonElement oldSchema, JsonElement newSchema)
-    {
-        if (oldSchema.ValueKind != newSchema.ValueKind)
-            return false;
-        if (oldSchema.ValueKind == JsonValueKind.Object)
-        {
-            var oldProperties = oldSchema.EnumerateObject().ToDictionary(static property => property.Name, static property => property.Value, StringComparer.Ordinal);
-            var newProperties = newSchema.EnumerateObject().ToDictionary(static property => property.Name, static property => property.Value, StringComparer.Ordinal);
-            if (oldProperties.Count != newProperties.Count)
-                return false;
-            foreach (var oldProperty in oldProperties)
-            {
-                if (!newProperties.TryGetValue(oldProperty.Key, out var newProperty))
-                    return false;
-                if ((string.Equals(oldProperty.Key, "required", StringComparison.Ordinal) || string.Equals(oldProperty.Key, "enum", StringComparison.Ordinal) || string.Equals(oldProperty.Key, "type", StringComparison.Ordinal)) && oldProperty.Value.ValueKind == JsonValueKind.Array && newProperty.ValueKind == JsonValueKind.Array)
-                {
-                    if (!GetRawArraySet(oldProperty.Value).SetEquals(GetRawArraySet(newProperty)))
-                        return false;
-                }
-                else if (!EquivalentIgnoringSchemaSetOrder(oldProperty.Value, newProperty))
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-        if (oldSchema.ValueKind == JsonValueKind.Array)
-        {
-            var oldItems = oldSchema.EnumerateArray().ToList();
-            var newItems = newSchema.EnumerateArray().ToList();
-            if (oldItems.Count != newItems.Count)
-                return false;
-            for (var index = 0; index < oldItems.Count; index++)
-                if (!EquivalentIgnoringSchemaSetOrder(oldItems[index], newItems[index]))
-                    return false;
-            return true;
-        }
-        if (oldSchema.ValueKind == JsonValueKind.Number && newSchema.ValueKind == JsonValueKind.Number)
-            return CanonicalJson.NumbersEqual(oldSchema, newSchema);
-        return string.Equals(oldSchema.GetRawText(), newSchema.GetRawText(), StringComparison.Ordinal);
-    }
-
-    private static HashSet<string> GetRawArraySet(JsonElement element)
-    {
-        var result = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var item in element.EnumerateArray())
-            result.Add(CanonicalJson.CanonicalizeValue(item));
-        return result;
+        if (changes.Count >= limits.MaxChanges)
+            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, "The comparison exceeds the configured change-count limit."));
+        changes.Add(change);
     }
 }

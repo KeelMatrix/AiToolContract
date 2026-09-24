@@ -14,6 +14,7 @@ dotnet test .\tests\KeelMatrix.AiToolContract.Tests\KeelMatrix.AiToolContract.Te
 dotnet restore .\KeelMatrix.AiToolContract.sln
 dotnet build .\KeelMatrix.AiToolContract.sln -c Release --no-restore
 dotnet test .\KeelMatrix.AiToolContract.sln -c Release --no-restore
+dotnet format .\KeelMatrix.AiToolContract.sln --verify-no-changes --no-restore
 dotnet pack .\src\KeelMatrix.AiToolContract\KeelMatrix.AiToolContract.csproj -c Release --no-restore -o .\artifacts
 dotnet list .\KeelMatrix.AiToolContract.sln package --vulnerable --include-transitive
 ```

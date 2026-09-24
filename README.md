@@ -34,7 +34,7 @@ No model, provider, API key, or network call is required. Capture reads callable
 
 ## What is classified
 
-The verifier reports `Breaking`, `Risky`, `Additive`, or `Informational` results. It distinguishes tool add/remove, required and optional parameter changes, parameter removal, type and nullability changes, enum and supported constraint changes, return-schema changes, description changes, approval metadata changes, and unsupported schema changes. A rename is reported as a remove plus an add.
+The verifier reports `Breaking`, `Risky`, `Additive`, or `Informational` results. It distinguishes tool add/remove, required and optional parameter changes, parameter removal, standard JSON Schema type-union changes, enum and supported constraint changes, return-schema changes, description changes, approval metadata changes, and unsupported schema changes. A rename is reported as a remove plus an add. The normalized schema model is a closed surface: the supported framework-emitted fields are listed in the [JSON Schema support matrix](docs/JSON-SCHEMA-SUPPORT.md), and unlisted keywords fail closed.
 
 Malformed schemas and unknown or ambiguous schema semantics fail closed with an explicit diagnostic. Verification never overwrites a baseline or auto-approves a breaking change.
 
