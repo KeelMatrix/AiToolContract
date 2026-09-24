@@ -4,6 +4,7 @@ artifacts/
 packages/
 local-feed/
 smoke/feed/
+smoke/PackageConsumer/packages.lock.json
 test-results/
 TestResults/
 coverage/
