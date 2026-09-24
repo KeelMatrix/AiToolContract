@@ -411,6 +411,27 @@ public sealed class ContractTests
         Assert.Equal(AiToolDiagnosticKind.UnsupportedClassification, capture.Diagnostic!.Kind);
     }
 
+    [Fact]
+    public void ReturnSchemaPresenceIsClassifiedAndUsesBothAcceptancePaths()
+    {
+        var absent = Capture("{}");
+        var present = Capture("{}", "{\"type\":\"object\"}");
+        var added = AiToolContractVerifier.Compare(absent, present);
+
+        Assert.Single(added.Changes);
+        Assert.Equal(AiToolChangeKind.ReturnSchemaAdditive, added.Changes[0].Kind);
+        Assert.Equal(AiToolCompatibility.Additive, added.Compatibility);
+        Assert.Same(present, AiToolContractVerifier.Accept(present, added));
+        Assert.Same(present, AiToolContractVerifier.AcceptWithBreakingReview(present, added));
+
+        var removed = AiToolContractVerifier.Compare(present, absent);
+        Assert.Single(removed.Changes);
+        Assert.Equal(AiToolChangeKind.ReturnSchemaBreaking, removed.Changes[0].Kind);
+        Assert.Equal(AiToolCompatibility.Breaking, removed.Compatibility);
+        Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Accept(absent, removed));
+        Assert.Same(absent, AiToolContractVerifier.AcceptWithBreakingReview(absent, removed));
+    }
+
     public static IEnumerable<object[]> TransitionMatrix
     {
         get
@@ -418,12 +439,20 @@ public sealed class ContractTests
             yield return Matrix("reference-added", "{}", "{\"$ref\":\"#/$defs/Order\"}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
             yield return Matrix("reference-removed", "{\"$ref\":\"#/$defs/Order\"}", "{}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
             yield return Matrix("reference-target-changed", "{\"$ref\":\"#/$defs/Order\"}", "{\"$ref\":\"#/$defs/Invoice\"}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("return-reference-added", "{}", "{\"$ref\":\"#/$defs/Order\"}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("return-reference-removed", "{\"$ref\":\"#/$defs/Order\"}", "{}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
             yield return Matrix("description-added", "{}", "{\"description\":\"A value\"}", false, AiToolChangeKind.DescriptionChanged, AiToolCompatibility.Risky, false);
             yield return Matrix("description-removed", "{\"description\":\"A value\"}", "{}", false, AiToolChangeKind.DescriptionChanged, AiToolCompatibility.Risky, false);
+            yield return Matrix("return-description-added", "{}", "{\"description\":\"A value\"}", true, AiToolChangeKind.DescriptionChanged, AiToolCompatibility.Risky, false);
+            yield return Matrix("return-description-removed", "{\"description\":\"A value\"}", "{}", true, AiToolChangeKind.DescriptionChanged, AiToolCompatibility.Risky, false);
             yield return Matrix("default-added", "{}", "{\"default\":null}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
             yield return Matrix("default-removed", "{\"default\":null}", "{}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("return-default-added", "{}", "{\"default\":null}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("return-default-removed", "{\"default\":null}", "{}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
             yield return Matrix("format-added", "{}", "{\"format\":\"date-time\"}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
             yield return Matrix("format-removed", "{\"format\":\"date-time\"}", "{}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("return-format-added", "{}", "{\"format\":\"date-time\"}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("return-format-removed", "{\"format\":\"date-time\"}", "{}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
 
             yield return Matrix("type-added", "{}", "{\"type\":\"string\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
             yield return Matrix("type-removed", "{\"type\":\"string\"}", "{}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, false);
@@ -431,6 +460,10 @@ public sealed class ContractTests
             yield return Matrix("type-union-narrowed", "{\"type\":[\"string\",\"null\"]}", "{\"type\":\"string\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
             yield return Matrix("type-primitive-to-object", "{\"type\":\"string\"}", "{\"type\":\"object\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
             yield return Matrix("type-object-to-array", "{\"type\":\"object\"}", "{\"type\":\"array\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, false);
+            yield return Matrix("return-type-added", "{}", "{\"type\":\"string\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
+            yield return Matrix("return-type-removed", "{\"type\":\"string\"}", "{}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
+            yield return Matrix("return-type-primitive-to-object", "{\"type\":\"string\"}", "{\"type\":\"object\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
+            yield return Matrix("return-type-object-to-array", "{\"type\":\"object\"}", "{\"type\":\"array\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
             yield return Matrix("return-type-union-widened", "{\"type\":\"string\"}", "{\"type\":[\"string\",\"null\"]}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
             yield return Matrix("return-type-union-narrowed", "{\"type\":[\"string\",\"null\"]}", "{\"type\":\"string\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
 
@@ -440,10 +473,14 @@ public sealed class ContractTests
             yield return Matrix("enum-narrowed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\",\"enum\":[\"open\"]}", false, AiToolChangeKind.EnumNarrowed, AiToolCompatibility.Breaking, false);
             yield return Matrix("return-enum-expanded", "{\"type\":\"string\",\"enum\":[\"open\"]}", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
             yield return Matrix("return-enum-narrowed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\",\"enum\":[\"open\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
+            yield return Matrix("return-enum-added", "{\"type\":\"string\"}", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
+            yield return Matrix("return-enum-removed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\"}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
             yield return Matrix("enum-mixed", "{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]}", "{\"type\":\"string\",\"enum\":[\"open\",\"new\"]}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
 
             yield return Matrix("items-added", "{\"type\":\"array\"}", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
             yield return Matrix("items-removed", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\"}", false, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("return-items-added", "{\"type\":\"array\"}", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
+            yield return Matrix("return-items-removed", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\"}", true, AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, true);
             yield return Matrix("nested-items-union-widened", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\",\"items\":{\"type\":[\"string\",\"null\"]}}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, false);
 
             yield return Matrix("optional-property-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"note\":{\"type\":\"string\"}}}", false, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, false);
@@ -460,6 +497,8 @@ public sealed class ContractTests
             yield return Matrix("required-undeclared-removed", "{\"type\":\"object\",\"required\":[\"ghost\"]}", "{\"type\":\"object\"}", false, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, false);
             yield return Matrix("return-required-declared-added", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}},\"required\":[\"result\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
             yield return Matrix("return-required-declared-removed", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}},\"required\":[\"result\"]}", "{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
+            yield return Matrix("return-required-undeclared-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"required\":[\"ghost\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
+            yield return Matrix("return-required-undeclared-removed", "{\"type\":\"object\",\"required\":[\"ghost\"]}", "{\"type\":\"object\"}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
 
             foreach (var memberName in new[] { "minimum", "exclusiveMinimum", "minLength", "minItems", "maximum", "exclusiveMaximum", "maxLength", "maxItems" })
             {
@@ -470,6 +509,8 @@ public sealed class ContractTests
                 yield return Matrix("input-" + memberName + "-removed", SchemaWithMember(memberName, "1"), "{}", false, AiToolChangeKind.ConstraintExpanded, AiToolCompatibility.Additive, false);
                 yield return Matrix("input-" + memberName + "-narrowed", SchemaWithMember(memberName, narrowOld), SchemaWithMember(memberName, narrowNew), false, AiToolChangeKind.ConstraintNarrowed, AiToolCompatibility.Breaking, false);
                 yield return Matrix("input-" + memberName + "-widened", SchemaWithMember(memberName, narrowNew), SchemaWithMember(memberName, narrowOld), false, AiToolChangeKind.ConstraintExpanded, AiToolCompatibility.Additive, false);
+                yield return Matrix("return-" + memberName + "-added", "{}", SchemaWithMember(memberName, "1"), true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
+                yield return Matrix("return-" + memberName + "-removed", SchemaWithMember(memberName, "1"), "{}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
                 yield return Matrix("return-" + memberName + "-narrowed", SchemaWithMember(memberName, narrowOld), SchemaWithMember(memberName, narrowNew), true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, false);
                 yield return Matrix("return-" + memberName + "-widened", SchemaWithMember(memberName, narrowNew), SchemaWithMember(memberName, narrowOld), true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, false);
             }
