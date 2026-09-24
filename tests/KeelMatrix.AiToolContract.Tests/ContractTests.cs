@@ -59,6 +59,68 @@ public sealed class ContractTests
     }
 
     [Fact]
+    public void TypeArrayOrderIsCanonicalizedAsASet()
+    {
+        var left = Capture("{\"type\":[\"string\",\"null\"]}");
+        var right = Capture("{\"type\":[\"null\",\"string\"]}");
+
+        var diff = AiToolContractVerifier.Compare(left, right);
+
+        Assert.True(diff.IsClean, string.Join("; ", diff.Diagnostics.Select(static d => d.Message)));
+        Assert.Equal(AiToolContractJson.Serialize(left), AiToolContractJson.Serialize(right));
+    }
+
+    [Fact]
+    public void AllOfOrderRemainsReviewRelevant()
+    {
+        var left = Capture("{\"allOf\":[{\"type\":\"string\"},{\"minLength\":1}]}");
+        var right = Capture("{\"allOf\":[{\"minLength\":1},{\"type\":\"string\"}]}");
+
+        var diff = AiToolContractVerifier.Compare(left, right);
+
+        Assert.False(diff.IsClean);
+        Assert.Contains(diff.Changes, static change => change.Kind == AiToolChangeKind.Unsupported);
+        Assert.Contains(diff.Diagnostics, static diagnostic => diagnostic.Kind == AiToolDiagnosticKind.UnsupportedClassification);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("{\"type\":\"object\",\"properties\":[]}")]
+    [InlineData("{\"type\":\"object\",\"required\":1}")]
+    [InlineData("{\"type\":1}")]
+    public void InvalidSchemaShapesFailClosed(string schema)
+    {
+        var baseline = BaselineWithInput(schema);
+
+        var diff = AiToolContractVerifier.Compare(baseline, baseline);
+
+        Assert.False(diff.IsClean);
+        Assert.Contains(diff.Changes, static change => change.Kind == AiToolChangeKind.Unsupported);
+        Assert.Contains(diff.Diagnostics, static diagnostic => diagnostic.Kind == AiToolDiagnosticKind.MalformedBaseline);
+        var capture = CaptureWithLimits(schema, AiToolContractLimits.Default);
+        Assert.False(capture.Succeeded);
+        Assert.Equal(AiToolDiagnosticKind.MalformedBaseline, capture.Diagnostic!.Kind);
+        var exception = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse("{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"inputSchema\":" + schema + ",\"returnSchema\":null,\"requiresApproval\":false}]}"));
+        Assert.Equal(AiToolDiagnosticKind.MalformedBaseline, exception.Diagnostic.Kind);
+    }
+
+    [Theory]
+    [InlineData("true")]
+    [InlineData("{\"type\":\"array\",\"items\":[{\"type\":\"string\"}]}")]
+    public void ValidButUnsupportedSchemaFormsFailClosed(string schema)
+    {
+        var baseline = BaselineWithInput(schema);
+
+        var diff = AiToolContractVerifier.Compare(baseline, baseline);
+
+        Assert.False(diff.IsClean);
+        Assert.Contains(diff.Changes, static change => change.Kind == AiToolChangeKind.Unsupported);
+        Assert.Contains(diff.Diagnostics, static diagnostic => diagnostic.Kind == AiToolDiagnosticKind.UnsupportedClassification);
+        var exception = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse("{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"inputSchema\":" + schema + ",\"returnSchema\":null,\"requiresApproval\":false}]}"));
+        Assert.Equal(AiToolDiagnosticKind.UnsupportedClassification, exception.Diagnostic.Kind);
+    }
+
+    [Fact]
     public void ReferenceAndDefinitionsShapeIsStable()
     {
         var left = Capture("{\"$ref\":\"#/$defs/Order\",\"$defs\":{\"Order\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}}}");

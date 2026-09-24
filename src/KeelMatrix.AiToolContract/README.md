@@ -29,5 +29,6 @@ Console.WriteLine(verification.IsClean); // True
 
 This library is offline. It does not call a model, provider, network endpoint, or captured function. Structural compatibility also cannot prove that a model will make the same tool-selection decisions after a description or provider change.
 
-See the [repository documentation](https://github.com/KeelMatrix/AiToolContract) for baseline acceptance, compatibility categories, limits, and privacy guidance.
+Malformed schemas and valid schema forms whose semantics are not implemented fail closed with an explicit diagnostic.
 
+See the [repository documentation](https://github.com/KeelMatrix/AiToolContract) for baseline acceptance, compatibility categories, limits, and privacy guidance.

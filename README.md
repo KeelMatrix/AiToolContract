@@ -36,7 +36,7 @@ No model, provider, API key, or network call is required. Capture reads callable
 
 The verifier reports `Breaking`, `Risky`, `Additive`, or `Informational` results. It distinguishes tool add/remove, required and optional parameter changes, parameter removal, type and nullability changes, enum and supported constraint changes, return-schema changes, description changes, approval metadata changes, and unsupported schema changes. A rename is reported as a remove plus an add.
 
-Unknown or ambiguous schema semantics fail closed with an explicit review diagnostic. Verification never overwrites a baseline or auto-approves a breaking change.
+Malformed schemas and unknown or ambiguous schema semantics fail closed with an explicit diagnostic. Verification never overwrites a baseline or auto-approves a breaking change.
 
 ## Documentation
 
@@ -52,4 +52,3 @@ Tool names, descriptions, schemas, parameter names, enum values, and return sche
 ## License
 
 MIT. See [LICENSE](LICENSE).
-

@@ -125,14 +125,18 @@ public static class AiToolContractVerifier
     private static void ReportUnsupportedSchema(string raw, string toolName, string pathPrefix, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, HashSet<string> reported, AiToolContractLimits limits)
     {
         using var document = ParseSchemaForComparison(raw, limits);
-        foreach (var unsupported in SchemaSemantics.FindUnsupported(document.RootElement))
+        try
         {
-            var path = pathPrefix == "$" ? unsupported.Path : pathPrefix + unsupported.Path.TrimStart('$');
-            var key = toolName + "|" + path + "|" + unsupported.Keyword;
-            if (!reported.Add(key))
-                continue;
-            Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path, "Schema keyword '" + unsupported.Keyword + "' has unsupported semantics and requires review."));
-            diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, "Schema keyword '" + unsupported.Keyword + "' at " + path + " requires review because its semantics are unsupported."));
+            SchemaSemantics.Validate(document.RootElement);
+        }
+        catch (AiToolContractException ex)
+        {
+            var key = toolName + "|" + pathPrefix + "|" + ex.Diagnostic.Kind + "|" + ex.Diagnostic.Message;
+            if (reported.Add(key))
+            {
+                Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, pathPrefix, ex.Diagnostic.Message));
+                diagnostics.Add(ex.Diagnostic);
+            }
         }
     }
 
@@ -432,7 +436,7 @@ public static class AiToolContractVerifier
             {
                 if (!newProperties.TryGetValue(oldProperty.Key, out var newProperty))
                     return false;
-                if ((string.Equals(oldProperty.Key, "required", StringComparison.Ordinal) || string.Equals(oldProperty.Key, "enum", StringComparison.Ordinal)) && oldProperty.Value.ValueKind == JsonValueKind.Array && newProperty.ValueKind == JsonValueKind.Array)
+                if ((string.Equals(oldProperty.Key, "required", StringComparison.Ordinal) || string.Equals(oldProperty.Key, "enum", StringComparison.Ordinal) || string.Equals(oldProperty.Key, "type", StringComparison.Ordinal)) && oldProperty.Value.ValueKind == JsonValueKind.Array && newProperty.ValueKind == JsonValueKind.Array)
                 {
                     if (!GetRawArraySet(oldProperty.Value).SetEquals(GetRawArraySet(newProperty)))
                         return false;

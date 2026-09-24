@@ -186,6 +186,17 @@ public static class AiToolContractJson
 
 internal static class SchemaSemantics
 {
+    private static readonly HashSet<string> JsonSchemaTypes = new(StringComparer.Ordinal)
+    {
+        "array",
+        "boolean",
+        "integer",
+        "null",
+        "number",
+        "object",
+        "string"
+    };
+
     private static readonly HashSet<string> SupportedKeywords = new(StringComparer.Ordinal)
     {
         "$defs",
@@ -215,60 +226,164 @@ internal static class SchemaSemantics
 
     internal static void Validate(JsonElement schema)
     {
-        var unsupported = FindUnsupported(schema).FirstOrDefault();
-        if (!string.IsNullOrEmpty(unsupported.Keyword))
-            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, "Schema keyword '" + unsupported.Keyword + "' at " + unsupported.Path + " has unsupported semantics and requires review."));
+        ValidateSchema(schema, "$");
     }
 
-    internal static IEnumerable<(string Path, string Keyword)> FindUnsupported(JsonElement schema)
+    private static void ValidateSchema(JsonElement schema, string path)
     {
-        var results = new List<(string Path, string Keyword)>();
-        Visit(schema, "$", results);
-        return results;
-    }
-
-    private static void Visit(JsonElement schema, string path, ICollection<(string Path, string Keyword)> results)
-    {
+        if (schema.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            throw Unsupported("Boolean JSON Schema at " + path + " is valid but is not supported for contract comparison.");
         if (schema.ValueKind != JsonValueKind.Object)
-            return;
+            throw Malformed("JSON Schema at " + path + " must be an object.");
 
         foreach (var property in schema.EnumerateObject())
         {
             var propertyPath = path + "." + property.Name;
             if (!SupportedKeywords.Contains(property.Name))
-            {
-                results.Add((propertyPath, property.Name));
-                continue;
-            }
+                throw Unsupported("Schema keyword '" + property.Name + "' at " + propertyPath + " has unsupported semantics and requires review.");
 
             switch (property.Name)
             {
-                case "properties":
                 case "$defs":
                 case "definitions":
-                    if (property.Value.ValueKind == JsonValueKind.Object)
-                    {
-                        foreach (var child in property.Value.EnumerateObject())
-                            Visit(child.Value, propertyPath + "." + child.Name, results);
-                    }
+                case "properties":
+                    ValidateSchemaMap(property.Value, propertyPath);
                     break;
-                case "items":
+                case "$ref":
+                    RequireKind(property.Value, JsonValueKind.String, propertyPath);
+                    break;
                 case "additionalProperties":
+                    ValidateSchemaOrBoolean(property.Value, propertyPath);
+                    break;
+                case "allOf":
+                case "anyOf":
+                case "oneOf":
+                    ValidateSchemaArray(property.Value, propertyPath);
+                    break;
                 case "contains":
                 case "not":
-                    Visit(property.Value, propertyPath, results);
+                    ValidateSchemaOrBoolean(property.Value, propertyPath);
                     break;
-                case "oneOf":
-                case "anyOf":
-                case "allOf":
+                case "items":
                     if (property.Value.ValueKind == JsonValueKind.Array)
-                    {
-                        var index = 0;
-                        foreach (var child in property.Value.EnumerateArray())
-                            Visit(child, propertyPath + "[" + index++ + "]", results);
-                    }
+                        throw Unsupported("Tuple-form items at " + propertyPath + " is valid JSON Schema but is not supported for contract comparison.");
+                    ValidateSchemaOrBoolean(property.Value, propertyPath);
+                    break;
+                case "enum":
+                    RequireKind(property.Value, JsonValueKind.Array, propertyPath);
+                    break;
+                case "required":
+                    ValidateStringArray(property.Value, propertyPath);
+                    break;
+                case "type":
+                    ValidateType(property.Value, propertyPath);
+                    break;
+                case "nullable":
+                    RequireKind(property.Value, JsonValueKind.True, JsonValueKind.False, propertyPath);
+                    break;
+                case "exclusiveMaximum":
+                case "exclusiveMinimum":
+                case "maximum":
+                case "minimum":
+                    RequireKind(property.Value, JsonValueKind.Number, propertyPath);
+                    break;
+                case "maxItems":
+                case "maxLength":
+                case "minItems":
+                case "minLength":
+                    ValidateNonNegativeInteger(property.Value, propertyPath);
                     break;
             }
         }
     }
+
+    private static void ValidateSchemaMap(JsonElement value, string path)
+    {
+        RequireKind(value, JsonValueKind.Object, path);
+        foreach (var child in value.EnumerateObject())
+            ValidateSchemaOrBoolean(child.Value, path + "." + child.Name);
+    }
+
+    private static void ValidateSchemaArray(JsonElement value, string path)
+    {
+        RequireKind(value, JsonValueKind.Array, path);
+        var index = 0;
+        foreach (var child in value.EnumerateArray())
+            ValidateSchemaOrBoolean(child, path + "[" + index++ + "]");
+    }
+
+    private static void ValidateSchemaOrBoolean(JsonElement value, string path)
+    {
+        if (value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            throw Unsupported("Boolean JSON Schema at " + path + " is valid but is not supported for contract comparison.");
+        ValidateSchema(value, path);
+    }
+
+    private static void ValidateStringArray(JsonElement value, string path)
+    {
+        RequireKind(value, JsonValueKind.Array, path);
+        var values = new HashSet<string>(StringComparer.Ordinal);
+        var index = 0;
+        foreach (var item in value.EnumerateArray())
+        {
+            var itemPath = path + "[" + index++ + "]";
+            RequireKind(item, JsonValueKind.String, itemPath);
+            if (!values.Add(item.GetString()!))
+                throw Malformed("JSON Schema array at " + path + " contains duplicate values.");
+        }
+    }
+
+    private static void ValidateType(JsonElement value, string path)
+    {
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            ValidateTypeName(value.GetString()!, path);
+            return;
+        }
+        RequireKind(value, JsonValueKind.Array, path);
+        var values = new HashSet<string>(StringComparer.Ordinal);
+        var index = 0;
+        foreach (var item in value.EnumerateArray())
+        {
+            var itemPath = path + "[" + index++ + "]";
+            RequireKind(item, JsonValueKind.String, itemPath);
+            var typeName = item.GetString()!;
+            ValidateTypeName(typeName, itemPath);
+            if (!values.Add(typeName))
+                throw Malformed("JSON Schema type at " + path + " contains duplicate values.");
+        }
+        if (values.Count == 0)
+            throw Malformed("JSON Schema type at " + path + " must contain at least one type.");
+    }
+
+    private static void ValidateTypeName(string value, string path)
+    {
+        if (!JsonSchemaTypes.Contains(value))
+            throw Malformed("JSON Schema type '" + value + "' at " + path + " is not a recognized JSON Schema type.");
+    }
+
+    private static void ValidateNonNegativeInteger(JsonElement value, string path)
+    {
+        RequireKind(value, JsonValueKind.Number, path);
+        if (!value.TryGetInt64(out var integer) || integer < 0)
+            throw Malformed("JSON Schema value at " + path + " must be a non-negative integer.");
+    }
+
+    private static void RequireKind(JsonElement value, JsonValueKind expected, string path) =>
+        RequireKind(value, new[] { expected }, path);
+
+    private static void RequireKind(JsonElement value, JsonValueKind expectedFirst, JsonValueKind expectedSecond, string path) =>
+        RequireKind(value, new[] { expectedFirst, expectedSecond }, path);
+
+    private static void RequireKind(JsonElement value, IReadOnlyCollection<JsonValueKind> expected, string path)
+    {
+        if (!expected.Contains(value.ValueKind))
+            throw Malformed("JSON Schema value at " + path + " must be " + string.Join(" or ", expected.Select(static kind => kind.ToString().ToLowerInvariant())) + ".");
+    }
+
+    private static AiToolContractException Malformed(string message) =>
+        new(new AiToolContractDiagnostic(AiToolDiagnosticKind.MalformedBaseline, message));
+
+private static AiToolContractException Unsupported(string message) =>
+        new(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, message));
 }

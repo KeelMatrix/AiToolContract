@@ -192,7 +192,7 @@ internal static class CanonicalJson
             case JsonValueKind.Array:
                 builder.Append('[');
                 var items = element.EnumerateArray().ToList();
-                if (string.Equals(propertyName, "required", StringComparison.Ordinal) || string.Equals(propertyName, "enum", StringComparison.Ordinal))
+                if (string.Equals(propertyName, "required", StringComparison.Ordinal) || string.Equals(propertyName, "enum", StringComparison.Ordinal) || string.Equals(propertyName, "type", StringComparison.Ordinal))
                     items.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.GetRawText(), right.GetRawText()));
                 var itemIndex = 0;
                 foreach (var item in items)

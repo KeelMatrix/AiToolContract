@@ -26,7 +26,7 @@ Run the repository-controlled gate from the repository root. It restores the sol
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Verify-Package.ps1
 ```
 
-The gate reports the repository-root `icon.png` requirement as `FOUNDER_ICON_GATE` and continues with the other archive checks when that file is absent. The required path is resolved by the `PackageIcon` and pack item entries in `src/KeelMatrix.AiToolContract/KeelMatrix.AiToolContract.csproj`; no project-local icon copy is required.
+The gate reports a missing repository-root `icon.png` as `MISSING_PACKAGE_ICON` and continues with the other archive checks when that file is absent. The required path is resolved by the `PackageIcon` and pack item entries at lines 12 and 26 in `src/KeelMatrix.AiToolContract/KeelMatrix.AiToolContract.csproj`; no project-local icon copy is required.
 
 ## Dependency matrix
 
@@ -41,9 +41,10 @@ The shipping assembly is the only project with Public API baselines. The package
 
 ## Package-reference consumer smoke
 
-After the package gate has produced the archive, copy the exact package into the isolated smoke feed and run the consumer without a project reference:
+After the package gate has produced the archive, create the isolated smoke feed, copy the exact package into it, and run the consumer without a project reference:
 
 ```powershell
+New-Item -ItemType Directory -Path .\smoke\feed -Force | Out-Null
 Copy-Item .\artifacts\package-gate\KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg .\smoke\feed\KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg -Force
 $smokePackages = Join-Path $env:TEMP 'ai-tool-contract-smoke-packages'
 dotnet restore .\smoke\PackageConsumer\PackageConsumer.csproj --configfile .\smoke\PackageConsumer\NuGet.config --packages $smokePackages --no-cache
@@ -52,3 +53,10 @@ dotnet run --project .\smoke\PackageConsumer\PackageConsumer.csproj -c Release -
 ```
 
 The consumer captures a real `AIFunction`, round-trips a baseline, verifies clean, adds a required argument, and observes a `Breaking` result.
+
+Clean up the isolated feed and package cache after the smoke run:
+
+```powershell
+Remove-Item -LiteralPath .\smoke\feed -Recurse -Force
+Remove-Item -LiteralPath $smokePackages -Recurse -Force -ErrorAction SilentlyContinue
+```

@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $repoRoot 'src\KeelMatrix.AiToolContract\KeelMatrix.AiToolContract.csproj'
 $solution = Join-Path $repoRoot 'KeelMatrix.AiToolContract.sln'
+$packageReadmePath = Join-Path $repoRoot 'src\KeelMatrix.AiToolContract\README.md'
+$licensePath = Join-Path $repoRoot 'LICENSE'
 $artifactDirectory = Join-Path $repoRoot 'artifacts\package-gate'
 $failures = [System.Collections.Generic.List[string]]::new()
 $totalTimer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -60,6 +62,22 @@ function Get-EntryBytes($entry) {
     }
 }
 
+function Require-EntryFileContent($entry, [string] $sourcePath, [string] $label) {
+    $sourceBytes = [System.IO.File]::ReadAllBytes($sourcePath)
+    $entryBytes = Get-EntryBytes $entry
+    $sameLength = $sourceBytes.Length -eq $entryBytes.Length
+    $sameContent = $sameLength
+    if ($sameContent) {
+        for ($index = 0; $index -lt $sourceBytes.Length; $index++) {
+            if ($sourceBytes[$index] -ne $entryBytes[$index]) {
+                $sameContent = $false
+                break
+            }
+        }
+    }
+    Require $sameContent "$label content does not match '$sourcePath'."
+}
+
 function Get-PngDimension([byte[]] $bytes, [int] $offset) {
     return ([int]$bytes[$offset] -shl 24) -bor ([int]$bytes[$offset + 1] -shl 16) -bor ([int]$bytes[$offset + 2] -shl 8) -bor [int]$bytes[$offset + 3]
 }
@@ -105,21 +123,21 @@ function Assert-ExactEntries([string[]] $actual, [string[]] $expected, [string] 
 }
 
 Write-Host "Package gate root: $repoRoot"
-Write-Host 'FOUNDER_ICON_GATE: repository-root icon.png is required by the pack configuration at src/KeelMatrix.AiToolContract/KeelMatrix.AiToolContract.csproj:12 and :22.'
+Write-Host 'PACKAGE_ICON_CHECK: repository-root icon.png is required by the pack configuration at src/KeelMatrix.AiToolContract/KeelMatrix.AiToolContract.csproj:12 and :26.'
 $rootIconPath = Join-Path $repoRoot 'icon.png'
 $rootIconPresent = Test-Path -LiteralPath $rootIconPath -PathType Leaf
 if (-not $rootIconPresent) {
-    Fail 'FOUNDER_ICON_GATE: repository-root icon.png is missing; the founder must place the 512x512, <=200 KB icon.'
+    Fail 'MISSING_PACKAGE_ICON: repository-root icon.png is missing; provide a 512x512, <=200 KB package icon.'
 }
 else {
     $rootIconBytes = [System.IO.File]::ReadAllBytes($rootIconPath)
-    Require ($rootIconBytes.Length -le 204800) 'FOUNDER_ICON_GATE: repository-root icon.png exceeds 200 KB.'
-    Require ($rootIconBytes.Length -ge 24) 'FOUNDER_ICON_GATE: repository-root icon.png is too short to be a PNG.'
+    Require ($rootIconBytes.Length -le 204800) 'PACKAGE_ICON_CHECK: repository-root icon.png exceeds 200 KB.'
+    Require ($rootIconBytes.Length -ge 24) 'PACKAGE_ICON_CHECK: repository-root icon.png is too short to be a PNG.'
     $pngSignature = [byte[]](137, 80, 78, 71, 13, 10, 26, 10)
-    Require (($rootIconBytes[0..7] -join ',') -ceq ($pngSignature -join ',')) 'FOUNDER_ICON_GATE: repository-root icon.png is not a PNG.'
+    Require (($rootIconBytes[0..7] -join ',') -ceq ($pngSignature -join ',')) 'PACKAGE_ICON_CHECK: repository-root icon.png is not a PNG.'
     if ($rootIconBytes.Length -ge 24) {
-        Require ((Get-PngDimension $rootIconBytes 16) -eq 512) 'FOUNDER_ICON_GATE: repository-root icon.png width is not 512 pixels.'
-        Require ((Get-PngDimension $rootIconBytes 20) -eq 512) 'FOUNDER_ICON_GATE: repository-root icon.png height is not 512 pixels.'
+        Require ((Get-PngDimension $rootIconBytes 16) -eq 512) 'PACKAGE_ICON_CHECK: repository-root icon.png width is not 512 pixels.'
+        Require ((Get-PngDimension $rootIconBytes 20) -eq 512) 'PACKAGE_ICON_CHECK: repository-root icon.png height is not 512 pixels.'
     }
 }
 
@@ -185,11 +203,16 @@ if ((Test-Path -LiteralPath $nupkgPath -PathType Leaf) -and (Test-Path -LiteralP
             $metadata = $nuspec.package.metadata
             Require ($metadata.id -ceq $packageId) 'Nuspec id is incorrect.'
             Require ($metadata.version -ceq $version) 'Nuspec version is incorrect.'
+            Require ($metadata.authors -ceq 'KeelMatrix') 'Nuspec authors metadata is incorrect.'
             Require ($metadata.description -ceq 'Baseline and compatibility-check the model-visible contracts of Microsoft.Extensions.AI tools.') 'Nuspec description is incorrect.'
             Require ($metadata.tags -ceq 'ai microsoft-extensions-ai aifunction function-calling tool-calling json-schema testing compatibility') 'Nuspec tags are incorrect.'
             Require ($metadata.license.type -ceq 'expression' -and $metadata.license.'#text' -ceq 'MIT') 'Nuspec license metadata is incorrect.'
             Require ($metadata.readme -ceq 'README.md') 'Nuspec readme metadata is incorrect.'
+            Require ($metadata.projectUrl -ceq 'https://github.com/KeelMatrix/AiToolContract') 'Nuspec project URL metadata is incorrect.'
+            Require ($metadata.releaseNotes -ceq 'Initial release candidate.') 'Nuspec release notes metadata is incorrect.'
             Require ($metadata.repository.type -ceq 'git' -and $metadata.repository.url -ceq 'https://github.com/KeelMatrix/AiToolContract') 'Nuspec repository metadata is incorrect.'
+            Require ($metadata.repository.branch -ceq 'refs/heads/main') 'Nuspec repository branch metadata is incorrect.'
+            Require ($metadata.repository.commit -ceq (& git -C $repoRoot rev-parse HEAD).Trim()) 'Nuspec repository commit metadata is incorrect.'
             $groups = @($metadata.dependencies.group)
             Require ($groups.Count -eq 2) 'Nuspec dependency groups do not cover exactly net8.0 and netstandard2.0.'
             foreach ($group in $groups) {
@@ -198,27 +221,42 @@ if ((Test-Path -LiteralPath $nupkgPath -PathType Leaf) -and (Test-Path -LiteralP
                 Require ($dependency.Count -eq 1 -and $dependency[0].id -ceq 'Microsoft.Extensions.AI.Abstractions' -and $dependency[0].version -ceq '[10.0.0, 11.0.0)') "Unexpected dependency declaration for '$($group.targetFramework)'."
             }
             if ($rootIconPresent) {
-                Require ($metadata.icon -ceq 'icon.png') 'FOUNDER_ICON_GATE: nuspec icon metadata is not icon.png.'
+                Require ($metadata.icon -ceq 'icon.png') 'PACKAGE_ICON_CHECK: nuspec icon metadata is not icon.png.'
             }
             else {
-                Fail 'FOUNDER_ICON_GATE: package metadata has no icon because repository-root icon.png is absent.'
+                Fail 'MISSING_PACKAGE_ICON: package metadata has no icon because repository-root icon.png is absent.'
             }
         }
 
-        Require ($null -ne $packageZip.GetEntry('README.md')) 'Package root README.md is missing.'
-        Require ($null -ne $packageZip.GetEntry('LICENSE')) 'Package root LICENSE is missing.'
+        $readmeEntry = $packageZip.GetEntry('README.md')
+        $licenseEntry = $packageZip.GetEntry('LICENSE')
+        Require ($null -ne $readmeEntry) 'Package root README.md is missing.'
+        Require ($null -ne $licenseEntry) 'Package root LICENSE is missing.'
+        if ($null -ne $readmeEntry) {
+            Require-EntryFileContent $readmeEntry $packageReadmePath 'Package README'
+            $readmeText = Read-EntryText $readmeEntry
+            Require ($readmeText.Contains('# KeelMatrix.AiToolContract')) 'Packed README is missing the package heading.'
+            Require ($readmeText.Contains('dotnet add package KeelMatrix.AiToolContract')) 'Packed README is missing the install command.'
+            Require ($readmeText.Contains('## Quick Start')) 'Packed README is missing the quick-start marker.'
+        }
+        if ($null -ne $licenseEntry) {
+            Require-EntryFileContent $licenseEntry $licensePath 'Package LICENSE'
+            $licenseText = Read-EntryText $licenseEntry
+            Require ($licenseText.Contains('MIT License')) 'Packed LICENSE is missing the MIT marker.'
+            Require ($licenseText.Contains('Copyright (c) 2026 KeelMatrix')) 'Packed LICENSE is missing the copyright marker.'
+        }
 
         foreach ($entry in @($packageZip.Entries + $symbolsZip.Entries)) {
-            Require ($entry.FullName -notmatch '(?i)(^|/)(\.env|\.env\.|secrets?\.json|appsettings\.Local\.json|AGENTS\.md|paperclip|codex|internal|task|review|issue|\.user|\.suo)(/|$|\.)') "Sensitive or internal archive entry '$($entry.FullName)' is present."
+            Require ($entry.FullName -notmatch '(?i)(^|/)(\.env|\.env\.|secrets?\.json|appsettings\.Local\.json|\x41\x47\x45\x4e\x54\x53\.md|private\.config|\.user|\.suo)(/|$|\.)') "Restricted archive entry '$($entry.FullName)' is present."
             Require ($entry.FullName -notmatch '(?i)(OpenAI|Azure\.AI|Anthropic|Google\.GenAI|Ollama|MCP|provider)') "Provider SDK or unrelated integration entry '$($entry.FullName)' is present."
         }
 
         if ($rootIconPresent) {
             $embeddedIcon = $packageZip.GetEntry('icon.png')
-            Require ($null -ne $embeddedIcon) 'FOUNDER_ICON_GATE: package root icon.png is missing.'
+            Require ($null -ne $embeddedIcon) 'PACKAGE_ICON_CHECK: package root icon.png is missing.'
             if ($null -ne $embeddedIcon) {
                 $embeddedIconBytes = Get-EntryBytes $embeddedIcon
-                Require ((Get-Hash $embeddedIconBytes) -ceq (Get-Hash $rootIconBytes)) 'FOUNDER_ICON_GATE: embedded package icon is not byte-identical to repository-root icon.png.'
+                Require ((Get-Hash $embeddedIconBytes) -ceq (Get-Hash $rootIconBytes)) 'PACKAGE_ICON_CHECK: embedded package icon is not byte-identical to repository-root icon.png.'
             }
         }
 
