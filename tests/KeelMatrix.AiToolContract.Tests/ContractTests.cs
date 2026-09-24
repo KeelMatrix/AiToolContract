@@ -308,6 +308,11 @@ public sealed class ContractTests
         var expected = testCase.ReturnSchema ? testCase.Rule.Return : testCase.Rule.Input;
 
         Assert.False(diff.IsClean, testCase.Name);
+        Assert.Equal(expected.Compatibility, diff.Compatibility);
+        Assert.Single(diff.Changes);
+        Assert.Equal(expected.Kind, diff.Changes[0].Kind);
+        Assert.Equal(expected.Compatibility, diff.Changes[0].Compatibility);
+        Assert.Equal(testCase.ExpectedPath, diff.Changes[0].Path);
         if (expected.Unsupported)
         {
             AssertUnsupported(diff);
@@ -329,6 +334,23 @@ public sealed class ContractTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(RestoredTransitionInventory))]
+    public void RestoredTransitionInventoryHasOneExactChange(RestoredTransitionCase testCase)
+    {
+        var oldBaseline = testCase.ReturnSchema ? Capture("{\"type\":\"object\"}", testCase.OldSchema) : Capture(testCase.OldSchema);
+        var newBaseline = testCase.ReturnSchema ? Capture("{\"type\":\"object\"}", testCase.NewSchema) : Capture(testCase.NewSchema);
+        var diff = AiToolContractVerifier.Compare(oldBaseline, newBaseline);
+
+        Assert.False(diff.IsClean, testCase.Name);
+        Assert.Equal(testCase.Compatibility, diff.Compatibility);
+        Assert.Single(diff.Changes);
+        Assert.Equal(testCase.Kind, diff.Changes[0].Kind);
+        Assert.Equal(testCase.Compatibility, diff.Changes[0].Compatibility);
+        var expectedPath = testCase.ReturnSchema ? "$.returnSchema" + testCase.Path[1..] : testCase.Path;
+        Assert.Equal(expectedPath, diff.Changes[0].Path);
+    }
+
     public static IEnumerable<object[]> ModelDerivedTransitionMatrix
     {
         get
@@ -341,6 +363,25 @@ public sealed class ContractTests
                     yield return new object[] { new GeneratedTransitionCase(rule, returnSchema, 2) };
                 }
             }
+        }
+    }
+
+    public static IEnumerable<object[]> RestoredTransitionInventory
+    {
+        get
+        {
+            yield return new object[] { new RestoredTransitionCase("required-undeclared-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"required\":[\"ghost\"]}", false, AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, "$.required") };
+            yield return new object[] { new RestoredTransitionCase("required-undeclared-removed", "{\"type\":\"object\",\"required\":[\"ghost\"]}", "{\"type\":\"object\"}", false, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, "$.required") };
+            yield return new object[] { new RestoredTransitionCase("return-required-undeclared-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"required\":[\"ghost\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, "$.required") };
+            yield return new object[] { new RestoredTransitionCase("return-required-undeclared-removed", "{\"type\":\"object\",\"required\":[\"ghost\"]}", "{\"type\":\"object\"}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, "$.required") };
+
+            yield return new object[] { new RestoredTransitionCase("type-primitive-to-object", "{\"type\":\"string\"}", "{\"type\":\"object\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, "$.type") };
+            yield return new object[] { new RestoredTransitionCase("type-object-to-array", "{\"type\":\"object\"}", "{\"type\":\"array\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, "$.type") };
+            yield return new object[] { new RestoredTransitionCase("return-type-primitive-to-object", "{\"type\":\"string\"}", "{\"type\":\"object\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, "$.type") };
+            yield return new object[] { new RestoredTransitionCase("return-type-object-to-array", "{\"type\":\"object\"}", "{\"type\":\"array\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, "$.type") };
+
+            yield return new object[] { new RestoredTransitionCase("nested-items-union-widened", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\",\"items\":{\"type\":[\"string\",\"null\"]}}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, "$.items.type") };
+            yield return new object[] { new RestoredTransitionCase("return-nested-items-union-widened", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\",\"items\":{\"type\":[\"string\",\"null\"]}}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, "$.items.type") };
         }
     }
 
@@ -369,6 +410,23 @@ public sealed class ContractTests
         Assert.Contains(approvalRemoved.Changes, static change => change.Kind == AiToolChangeKind.ApprovalSafetyMetadataChanged && change.Compatibility == AiToolCompatibility.Breaking);
         Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Accept(plainBaseline, approvalRemoved));
         Assert.Same(plainBaseline, AiToolContractVerifier.AcceptWithBreakingReview(plainBaseline, approvalRemoved));
+    }
+
+    [Fact]
+    public void OneUnsupportedItemsTransitionFitsWithinOneChangeLimit()
+    {
+        var baseline = Capture("{\"type\":\"array\"}");
+        var candidate = Capture("{\"type\":\"array\",\"items\":{\"type\":\"string\"}}");
+
+        var diff = AiToolContractVerifier.Compare(baseline, candidate, new AiToolContractLimits { MaxChanges = 1 });
+
+        Assert.False(diff.IsClean);
+        Assert.Equal(AiToolCompatibility.Risky, diff.Compatibility);
+        Assert.Single(diff.Changes);
+        Assert.Equal(AiToolChangeKind.Unsupported, diff.Changes[0].Kind);
+        Assert.Equal(AiToolCompatibility.Risky, diff.Changes[0].Compatibility);
+        Assert.Equal("$.items", diff.Changes[0].Path);
+        Assert.Contains(diff.Diagnostics, static diagnostic => diagnostic.Kind == AiToolDiagnosticKind.UnsupportedClassification);
     }
 
     [Fact]
@@ -472,6 +530,30 @@ public sealed class ContractTests
         internal bool ReturnSchema { get; }
         internal int Depth { get; }
         internal string Name => "matrix-" + (ReturnSchema ? "return" : "input") + "-depth" + Depth + "-" + Rule.PropertyName + "-" + Rule.Direction;
+        internal string ExpectedPath => SchemaTransitionSchemaGenerator.ExpectedPath(Rule, Depth, ReturnSchema);
+        public override string ToString() => Name;
+    }
+
+    public sealed class RestoredTransitionCase
+    {
+        public RestoredTransitionCase(string name, string oldSchema, string newSchema, bool returnSchema, AiToolChangeKind kind, AiToolCompatibility compatibility, string path)
+        {
+            Name = name;
+            OldSchema = oldSchema;
+            NewSchema = newSchema;
+            ReturnSchema = returnSchema;
+            Kind = kind;
+            Compatibility = compatibility;
+            Path = path;
+        }
+
+        public string Name { get; }
+        public string OldSchema { get; }
+        public string NewSchema { get; }
+        public bool ReturnSchema { get; }
+        public AiToolChangeKind Kind { get; }
+        public AiToolCompatibility Compatibility { get; }
+        public string Path { get; }
         public override string ToString() => Name;
     }
 
@@ -481,6 +563,28 @@ public sealed class ContractTests
         {
             var target = BuildTarget(rule.PropertyName, rule.Direction);
             return (Wrap(target.OldSchema, depth), Wrap(target.NewSchema, depth));
+        }
+
+        internal static string ExpectedPath(SchemaTransitionRule rule, int depth, bool returnSchema)
+        {
+            var path = returnSchema ? "$.returnSchema" : "$";
+            for (var level = depth - 1; level >= 0; level--)
+                path += ".properties.nested" + level;
+
+            var propertyPath = rule.PropertyName switch
+            {
+                nameof(NormalizedSchema.Reference) => ".$ref",
+                nameof(NormalizedSchema.Description) => ".description",
+                nameof(NormalizedSchema.HasDefault) or nameof(NormalizedSchema.DefaultValue) => ".default",
+                nameof(NormalizedSchema.Format) => ".format",
+                nameof(NormalizedSchema.Types) => ".type",
+                nameof(NormalizedSchema.Required) => ".required",
+                nameof(NormalizedSchema.EnumValues) => ".enum",
+                nameof(NormalizedSchema.Items) => ".items",
+                nameof(NormalizedSchema.Properties) => rule.Direction == SchemaTransitionDirection.Removed ? ".properties.result" : rule.Direction == SchemaTransitionDirection.RequiredPropertyAdded ? ".properties.query" : ".properties.note",
+                _ => "." + char.ToLowerInvariant(rule.PropertyName[0]) + rule.PropertyName.Substring(1)
+            };
+            return path + propertyPath;
         }
 
         private static (string OldSchema, string NewSchema) BuildTarget(string propertyName, SchemaTransitionDirection direction)

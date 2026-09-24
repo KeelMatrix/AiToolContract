@@ -311,14 +311,48 @@ public static class AiToolContractVerifier
 
     private static void AddUnsupported(List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, string toolName, string path, string message)
     {
-        Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path, message));
+        var canonicalPath = string.Equals(toolName, "$", StringComparison.Ordinal) ? path : CanonicalUnsupportedPath(path);
+        if (!string.Equals(toolName, "$", StringComparison.Ordinal) && changes.Any(change =>
+            change.Kind == AiToolChangeKind.Unsupported &&
+            string.Equals(change.ToolName, toolName, StringComparison.Ordinal) &&
+            string.Equals(CanonicalUnsupportedPath(change.Path), canonicalPath, StringComparison.Ordinal)))
+            return;
+
+        Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, canonicalPath, message));
         diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, message));
     }
 
     private static void Add(List<AiToolChange> changes, AiToolContractLimits limits, AiToolChange change)
     {
+        if (change.Kind != AiToolChangeKind.Unsupported && changes.Any(existing =>
+            existing.Kind == AiToolChangeKind.Unsupported &&
+            string.Equals(existing.ToolName, change.ToolName, StringComparison.Ordinal) &&
+            string.Equals(CanonicalUnsupportedPath(existing.Path), CanonicalUnsupportedPath(change.Path), StringComparison.Ordinal)))
+            return;
+
         if (changes.Count >= limits.MaxChanges)
             throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, "The comparison exceeds the configured change-count limit."));
         changes.Add(change);
     }
+
+    private static string CanonicalUnsupportedPath(string path) =>
+        path
+            .Replace(".Reference", ".$ref")
+            .Replace(".Description", ".description")
+            .Replace(".HasDefault", ".default")
+            .Replace(".DefaultValue", ".default")
+            .Replace(".Format", ".format")
+            .Replace(".Types", ".type")
+            .Replace(".Properties", ".properties")
+            .Replace(".Required", ".required")
+            .Replace(".EnumValues", ".enum")
+            .Replace(".Items", ".items")
+            .Replace(".Minimum", ".minimum")
+            .Replace(".Maximum", ".maximum")
+            .Replace(".ExclusiveMinimum", ".exclusiveMinimum")
+            .Replace(".ExclusiveMaximum", ".exclusiveMaximum")
+            .Replace(".MinLength", ".minLength")
+            .Replace(".MaxLength", ".maxLength")
+            .Replace(".MinItems", ".minItems")
+            .Replace(".MaxItems", ".maxItems");
 }
