@@ -1,6 +1,7 @@
 param(
     [ValidateSet('Release')]
-    [string] $Configuration = 'Release'
+    [string] $Configuration = 'Release',
+    [switch] $AllowMissingIcon
 )
 
 $ErrorActionPreference = 'Stop'
@@ -159,7 +160,12 @@ Write-Host 'PACKAGE_ICON_CHECK: repository-root icon.png is required by the pack
 $rootIconPath = Join-Path $repoRoot 'icon.png'
 $rootIconPresent = Test-Path -LiteralPath $rootIconPath -PathType Leaf
 if (-not $rootIconPresent) {
-    Fail 'MISSING_PACKAGE_ICON: repository-root icon.png is missing; provide a 512x512, <=200 KB package icon.'
+    if ($AllowMissingIcon) {
+        Write-Host 'PACKAGE_ICON_CHECK: repository-root icon.png is absent; staged pre-founder validation allows this.' -ForegroundColor Yellow
+    }
+    else {
+        Fail 'MISSING_PACKAGE_ICON: repository-root icon.png is missing; provide a 512x512, <=200 KB package icon.'
+    }
 }
 else {
     $rootIconBytes = [System.IO.File]::ReadAllBytes($rootIconPath)
@@ -255,7 +261,7 @@ if ((Test-Path -LiteralPath $nupkgPath -PathType Leaf) -and (Test-Path -LiteralP
             if ($rootIconPresent) {
                 Require ($metadata.icon -ceq 'icon.png') 'PACKAGE_ICON_CHECK: nuspec icon metadata is not icon.png.'
             }
-            else {
+            elseif (-not $AllowMissingIcon) {
                 Fail 'MISSING_PACKAGE_ICON: package metadata has no icon because repository-root icon.png is absent.'
             }
         }

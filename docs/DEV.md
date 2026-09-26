@@ -29,6 +29,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Verify-Package.ps1
 
 The gate reports a missing repository-root `icon.png` as `MISSING_PACKAGE_ICON` and continues with the other archive checks when that file is absent. The required path is resolved by the `PackageIcon` and pack item entries at lines 12 and 26 in `src/KeelMatrix.AiToolContract/KeelMatrix.AiToolContract.csproj`; no project-local icon copy is required.
 
+The default gate requires the founder-owned icon. Public CI may use `-AllowMissingIcon` only for the staged pre-founder candidate; when the icon is present, the same gate validates its dimensions, metadata, package entry, and byte identity.
+
 ## Dependency matrix
 
 Build the minimum supported abstraction package and the current tested package with the repository's central version override:

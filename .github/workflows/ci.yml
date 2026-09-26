@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  DOTNET_NOLOGO: 'true'
+  NUGET_XMLDOC_MODE: skip
+
+jobs:
+  build-test:
+    name: Build and test (${{ matrix.os }}, MEAI ${{ matrix.abstractions }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            abstractions: 10.0.0
+          - os: ubuntu-latest
+            abstractions: 10.10.0
+          - os: windows-latest
+            abstractions: 10.0.0
+          - os: windows-latest
+            abstractions: 10.10.0
+          - os: macos-latest
+            abstractions: 10.0.0
+          - os: macos-latest
+            abstractions: 10.10.0
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore KeelMatrix.AiToolContract.sln --configfile NuGet.config -p:AiToolContractAbstractionsVersion=${{ matrix.abstractions }}
+
+      - name: Build
+        run: dotnet build KeelMatrix.AiToolContract.sln --configuration Release --no-restore -p:AiToolContractAbstractionsVersion=${{ matrix.abstractions }}
+
+      - name: Test
+        run: dotnet test KeelMatrix.AiToolContract.sln --configuration Release --no-build --no-restore -p:AiToolContractAbstractionsVersion=${{ matrix.abstractions }}
+
+  quality:
+    name: Format and dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore KeelMatrix.AiToolContract.sln --configfile NuGet.config
+
+      - name: Verify formatting
+        run: dotnet format KeelMatrix.AiToolContract.sln --verify-no-changes --no-restore
+
+      - name: Audit dependencies
+        run: dotnet list KeelMatrix.AiToolContract.sln package --vulnerable --include-transitive
+
+  package:
+    name: Pack and inspect archive
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Run package gate
+        shell: pwsh
+        run: ./scripts/Verify-Package.ps1 -AllowMissingIcon
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-gate
+          path: artifacts/package-gate
+          if-no-files-found: error
+
+  consumer-smoke:
+    name: Package consumer smoke
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: package-gate
+          path: artifacts/package-gate
+
+      - name: Restore, build, and run clean consumer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $feed = Join-Path $env:GITHUB_WORKSPACE 'smoke/feed'
+          $packages = Join-Path $env:RUNNER_TEMP 'ai-tool-contract-smoke-packages'
+          New-Item -ItemType Directory -Path $feed -Force | Out-Null
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE 'artifacts/package-gate/KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg') $feed -Force
+
+          function Invoke-Dotnet([string[]] $Arguments) {
+              & dotnet @Arguments
+              if ($LASTEXITCODE -ne 0) {
+                  throw "dotnet $($Arguments -join ' ') exited with code $LASTEXITCODE."
+              }
+          }
+
+          try {
+              Invoke-Dotnet @('restore', 'smoke/PackageConsumer/PackageConsumer.csproj', '--configfile', 'smoke/PackageConsumer/NuGet.config', '--packages', $packages, '--no-cache')
+              Invoke-Dotnet @('build', 'smoke/PackageConsumer/PackageConsumer.csproj', '--configuration', 'Release', '--no-restore')
+              Invoke-Dotnet @('run', '--project', 'smoke/PackageConsumer/PackageConsumer.csproj', '--configuration', 'Release', '--no-restore', '--no-build')
+          }
+          finally {
+              Remove-Item -LiteralPath $feed -Recurse -Force -ErrorAction SilentlyContinue
+              Remove-Item -LiteralPath $packages -Recurse -Force -ErrorAction SilentlyContinue
+          }
