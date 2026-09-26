@@ -29,6 +29,10 @@ Console.WriteLine(verification.IsClean); // True
 
 This library is offline. It does not call a model, provider, network endpoint, or captured function. Structural compatibility also cannot prove that a model will make the same tool-selection decisions after a description or provider change.
 
+## Supported frameworks
+
+The package targets `net8.0` and `netstandard2.0` and is intended for cross-platform .NET applications on Windows, Linux, and macOS.
+
 Malformed schemas and valid schema forms whose semantics are not represented by the closed normalized model fail closed with an explicit diagnostic. Standard JSON Schema type arrays express nullability; the OpenAPI `nullable` keyword is unsupported.
 
 See the [JSON Schema support matrix](https://github.com/KeelMatrix/AiToolContract/blob/main/docs/JSON-SCHEMA-SUPPORT.md) for the version-one keyword surface. See the [repository documentation](https://github.com/KeelMatrix/AiToolContract) for baseline acceptance, compatibility categories, limits, and privacy guidance.

@@ -32,6 +32,10 @@ if (!verification.IsClean)
 
 No model, provider, API key, or network call is required. Capture reads callable metadata and JSON Schema; it never invokes a captured function. Structural compatibility does not prove that a model will make the same tool-selection decisions after a description or provider change.
 
+## Supported frameworks
+
+The package targets `net8.0` and `netstandard2.0` and is intended for cross-platform .NET applications on Windows, Linux, and macOS.
+
 ## What is classified
 
 The verifier reports `Breaking`, `Risky`, `Additive`, or `Informational` results. It distinguishes tool add/remove, required and optional parameter changes, parameter removal, standard JSON Schema type-union changes, enum and supported constraint changes, return-schema changes, description changes, approval metadata changes, and unsupported schema changes. A rename is reported as a remove plus an add. The normalized schema model is a closed surface: the supported framework-emitted fields are listed in the [JSON Schema support matrix](docs/JSON-SCHEMA-SUPPORT.md), and unlisted keywords fail closed.

@@ -26,15 +26,15 @@ jobs:
           - os: ubuntu-latest
             abstractions: 10.0.0
           - os: ubuntu-latest
-            abstractions: 10.10.0
+            abstractions: 10.10.1
           - os: windows-latest
             abstractions: 10.0.0
           - os: windows-latest
-            abstractions: 10.10.0
+            abstractions: 10.10.1
           - os: macos-latest
             abstractions: 10.0.0
           - os: macos-latest
-            abstractions: 10.10.0
+            abstractions: 10.10.1
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -70,6 +70,10 @@ jobs:
 
       - name: Verify formatting
         run: dotnet format KeelMatrix.AiToolContract.sln --verify-no-changes --no-restore
+
+      - name: Verify release contract helper
+        shell: pwsh
+        run: ./tests/Validate-Release.Tests.ps1
 
       - name: Audit dependencies
         run: dotnet list KeelMatrix.AiToolContract.sln package --vulnerable --include-transitive

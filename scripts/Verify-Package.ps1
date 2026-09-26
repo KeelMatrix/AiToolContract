@@ -1,6 +1,8 @@
 param(
     [ValidateSet('Release')]
     [string] $Configuration = 'Release',
+    [string] $Version = '0.1.0-rc.1',
+    [string] $PackageReleaseNotes = 'Initial release candidate.',
     [switch] $AllowMissingIcon
 )
 
@@ -161,7 +163,7 @@ $rootIconPath = Join-Path $repoRoot 'icon.png'
 $rootIconPresent = Test-Path -LiteralPath $rootIconPath -PathType Leaf
 if (-not $rootIconPresent) {
     if ($AllowMissingIcon) {
-        Write-Host 'PACKAGE_ICON_CHECK: repository-root icon.png is absent; staged pre-founder validation allows this.' -ForegroundColor Yellow
+        Write-Host 'PACKAGE_ICON_CHECK: repository-root icon.png is absent; explicit allow-missing-icon mode continues with archive checks.' -ForegroundColor Yellow
     }
     else {
         Fail 'MISSING_PACKAGE_ICON: repository-root icon.png is missing; provide a 512x512, <=200 KB package icon.'
@@ -184,14 +186,14 @@ if (Test-Path -LiteralPath $artifactDirectory) {
 }
 New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
 
-Run-Step 'dotnet restore .\KeelMatrix.AiToolContract.sln' {
-    dotnet restore $solution
+Run-Step 'dotnet restore .\KeelMatrix.AiToolContract.sln --configfile .\NuGet.config' {
+    dotnet restore $solution --configfile (Join-Path $repoRoot 'NuGet.config') --no-cache --force
 }
 Run-Step 'dotnet pack .\src\KeelMatrix.AiToolContract\KeelMatrix.AiToolContract.csproj -c Release --no-restore -o .\artifacts\package-gate' {
-    dotnet pack $project -c $Configuration --no-restore -o $artifactDirectory
+    dotnet pack $project -c $Configuration --no-restore -p:Version=$Version -p:PackageReleaseNotes=$PackageReleaseNotes -o $artifactDirectory
 }
 
-$version = '0.1.0-rc.1'
+$version = $Version
 $packageId = 'KeelMatrix.AiToolContract'
 $nupkgName = "$packageId.$version.nupkg"
 $snupkgName = "$packageId.$version.snupkg"
@@ -247,7 +249,7 @@ if ((Test-Path -LiteralPath $nupkgPath -PathType Leaf) -and (Test-Path -LiteralP
             Require ($metadata.license.type -ceq 'expression' -and $metadata.license.'#text' -ceq 'MIT') 'Nuspec license metadata is incorrect.'
             Require ($metadata.readme -ceq 'README.md') 'Nuspec readme metadata is incorrect.'
             Require ($metadata.projectUrl -ceq 'https://github.com/KeelMatrix/AiToolContract') 'Nuspec project URL metadata is incorrect.'
-            Require ($metadata.releaseNotes -ceq 'Initial release candidate.') 'Nuspec release notes metadata is incorrect.'
+            Require ($metadata.releaseNotes -ceq $PackageReleaseNotes) 'Nuspec release notes metadata is incorrect.'
             Require ($metadata.repository.type -ceq 'git' -and $metadata.repository.url -ceq 'https://github.com/KeelMatrix/AiToolContract') 'Nuspec repository metadata is incorrect.'
             Require ($metadata.repository.branch -ceq 'refs/heads/main') 'Nuspec repository branch metadata is incorrect.'
             Require ($metadata.repository.commit -ceq (& git -C $repoRoot rev-parse HEAD).Trim()) 'Nuspec repository commit metadata is incorrect.'
