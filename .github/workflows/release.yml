@@ -12,6 +12,7 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
   DOTNET_NOLOGO: 'true'
   NUGET_XMLDOC_MODE: skip
+  RELEASE_TAG: ${{ github.ref_name }}
 
 jobs:
   release:
@@ -29,7 +30,7 @@ jobs:
         id: release-version
         shell: pwsh
         run: |
-          $tag = '${{ github.ref_name }}'
+          $tag = $env:RELEASE_TAG
           if ($tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
               throw "Malformed release tag '$tag'. Expected vX.Y.Z."
           }
@@ -44,18 +45,26 @@ jobs:
         run: dotnet restore KeelMatrix.AiToolContract.sln --configfile NuGet.config --no-cache --force
 
       - name: Build Release
-        run: dotnet build KeelMatrix.AiToolContract.sln --configuration Release --no-restore -p:Version=${{ steps.release-version.outputs.version }}
+        env:
+          RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
+        run: dotnet build KeelMatrix.AiToolContract.sln --configuration Release --no-restore -p:Version=$env:RELEASE_VERSION
 
       - name: Test Release
-        run: dotnet test KeelMatrix.AiToolContract.sln --configuration Release --no-build --no-restore -p:Version=${{ steps.release-version.outputs.version }}
+        env:
+          RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
+        run: dotnet test KeelMatrix.AiToolContract.sln --configuration Release --no-build --no-restore -p:Version=$env:RELEASE_VERSION
 
       - name: Run package gate
         shell: pwsh
-        run: ./scripts/Verify-Package.ps1 -Version '${{ steps.release-version.outputs.version }}' -PackageReleaseNotes 'Initial public release.'
+        env:
+          RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
+        run: ./scripts/Verify-Package.ps1 -Version $env:RELEASE_VERSION -PackageReleaseNotes 'Initial public release.'
 
       - name: Validate release contract
         shell: pwsh
-        run: ./scripts/Validate-Release.ps1 -Version '${{ steps.release-version.outputs.version }}' -Tag '${{ github.ref_name }}' -PackageDirectory ./artifacts/package-gate -RequireFinalizedChangelog
+        env:
+          RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
+        run: ./scripts/Validate-Release.ps1 -Version $env:RELEASE_VERSION -Tag $env:RELEASE_TAG -PackageDirectory ./artifacts/package-gate -RequireFinalizedChangelog
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
@@ -72,20 +81,23 @@ jobs:
 
       - name: Push package to NuGet.org
         shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: |
-          $version = '${{ steps.release-version.outputs.version }}'
+          $version = $env:RELEASE_VERSION
           $nupkg = "./artifacts/package-gate/KeelMatrix.AiToolContract.$version.nupkg"
           $snupkg = "./artifacts/package-gate/KeelMatrix.AiToolContract.$version.snupkg"
-          dotnet nuget push $nupkg --source https://api.nuget.org/v3/index.json --api-key '${{ steps.nuget-login.outputs.NUGET_API_KEY }}' --skip-duplicate
+          dotnet nuget push $nupkg --source https://api.nuget.org/v3/index.json --api-key $env:NUGET_API_KEY --skip-duplicate
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet nuget push $snupkg --source https://api.nuget.org/v3/index.json --api-key '${{ steps.nuget-login.outputs.NUGET_API_KEY }}' --skip-duplicate
+          dotnet nuget push $snupkg --source https://api.nuget.org/v3/index.json --api-key $env:NUGET_API_KEY --skip-duplicate
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Release ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           files: ./artifacts/package-gate/*
         env:

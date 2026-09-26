@@ -54,6 +54,26 @@ No unreleased changes.
 '@
     Assert-Condition (Invoke-Validator @{ Version = '0.1.0'; Tag = 'v0.1.0'; RepositoryRoot = $temporaryRoot; PackageDirectory = $packageDirectory; RequireFinalizedChangelog = $true }) 'Pre-release changelog wording was accepted.'
 
+    $releaseWorkflowPath = Join-Path (Split-Path -Parent $PSScriptRoot) '.github/workflows/release.yml'
+    $releaseWorkflow = Get-Content -LiteralPath $releaseWorkflowPath -Raw
+    $unsafeRefLines = @($releaseWorkflow -split "`r?`n" | Where-Object {
+            $_ -match '\$\{\{\s*github\.ref_name\s*\}\}' -and $_ -notmatch '^\s*RELEASE_TAG:\s*'
+        })
+    $maliciousRef = "v1.2.3'; Write-Output('PWNED') #"
+    Assert-Condition ($unsafeRefLines.Count -eq 0) "The release workflow embeds an untrusted ref directly outside its environment boundary: $($unsafeRefLines -join ' | ')"
+    Assert-Condition ($releaseWorkflow -match '(?m)^\s*RELEASE_TAG:\s*\$\{\{\s*github\.ref_name\s*\}\}\s*$') 'The release workflow does not pass the tag through an environment boundary.'
+    Assert-Condition ($releaseWorkflow -match '(?m)^\s*\$tag\s*=\s*\$env:RELEASE_TAG\s*$') "The release workflow could execute a legal malicious ref such as '$maliciousRef'."
+    $previousReleaseTag = $env:RELEASE_TAG
+    try {
+        $env:RELEASE_TAG = $maliciousRef
+        $probeOutput = @(& pwsh -NoProfile -NonInteractive -Command "`$tag = `$env:RELEASE_TAG; if (`$tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') { 'REJECTED' } else { 'ACCEPTED' }" 2>&1)
+        $probeExitCode = $LASTEXITCODE
+        Assert-Condition ($probeExitCode -eq 0 -and ($probeOutput -join "`n") -ceq 'REJECTED') "A malicious tag value was not rejected as data: '$maliciousRef'."
+    }
+    finally {
+        $env:RELEASE_TAG = $previousReleaseTag
+    }
+
     Write-Output 'RELEASE_VALIDATOR_TEST_PASS'
 }
 finally {
