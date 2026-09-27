@@ -16,8 +16,8 @@ public static class AiToolContractVerifier
         effectiveLimits.Validate();
         if (baseline.SchemaVersion != 1 || candidate.SchemaVersion != 1)
             throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedBaselineVersion, "Only baseline schema version 1 is supported."));
-        baseline.ValidateLimits(effectiveLimits);
-        candidate.ValidateLimits(effectiveLimits);
+        AiToolContractJson.ValidateBaselineLimits(baseline, effectiveLimits);
+        AiToolContractJson.ValidateBaselineLimits(candidate, effectiveLimits);
 
         var changes = new List<AiToolChange>();
         var diagnostics = new List<AiToolContractDiagnostic>();

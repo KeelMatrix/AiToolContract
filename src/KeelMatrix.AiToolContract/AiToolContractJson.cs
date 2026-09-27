@@ -30,8 +30,19 @@ public static class AiToolContractJson
         effectiveLimits.Validate();
         if (baseline.SchemaVersion != 1)
             throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedBaselineVersion, "Baseline schema version " + baseline.SchemaVersion + " is not supported."));
-        baseline.ValidateLimits(effectiveLimits);
+        ValidateBaselineLimits(baseline, effectiveLimits);
 
+        return SerializeCore(baseline);
+    }
+
+    internal static void ValidateBaselineLimits(AiToolContractBaseline baseline, AiToolContractLimits limits)
+    {
+        baseline.ValidateLimits(limits);
+        EnsureBaselineByteLimit(SerializeCore(baseline), limits);
+    }
+
+    private static string SerializeCore(AiToolContractBaseline baseline)
+    {
         var tools = baseline.Tools.OrderBy(static tool => tool.Name, StringComparer.Ordinal).ToList();
         var builder = new StringBuilder();
         builder.Append("{\"schemaVersion\":1,\"tools\":[");
@@ -65,8 +76,7 @@ public static class AiToolContractJson
         try
         {
             effectiveLimits.Validate();
-            if (Encoding.UTF8.GetByteCount(json) > (long)effectiveLimits.MaxSchemaBytes * 2L)
-                throw Resource("The baseline exceeds the configured byte limit.");
+            EnsureBaselineByteLimit(json, effectiveLimits);
 
             RejectDuplicateProperties(json, effectiveLimits);
             using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = effectiveLimits.GetJsonDocumentMaxDepth(4), CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
@@ -113,7 +123,9 @@ public static class AiToolContractJson
             }
 
             tools.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
-            return new AiToolContractBaseline(tools);
+            var baseline = new AiToolContractBaseline(tools);
+            ValidateBaselineLimits(baseline, effectiveLimits);
+            return baseline;
         }
         catch (AiToolContractException)
         {
@@ -192,6 +204,12 @@ public static class AiToolContractJson
 
     private static AiToolContractException Resource(string message) =>
         new(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, message));
+
+    private static void EnsureBaselineByteLimit(string baselineJson, AiToolContractLimits limits)
+    {
+        if (Encoding.UTF8.GetByteCount(baselineJson) > limits.GetBaselineByteLimit())
+            throw Resource("The baseline exceeds the configured aggregate UTF-8 byte limit.");
+    }
 
     private static void RejectDuplicateProperties(string json, AiToolContractLimits limits)
     {

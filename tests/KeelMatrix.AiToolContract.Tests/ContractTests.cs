@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Text;
 using System.Text.Json;
 using KeelMatrix.AiToolContract;
 using Microsoft.Extensions.AI;
@@ -305,6 +306,36 @@ public sealed class ContractTests
         var largeDepth = new AiToolContractLimits { MaxSchemaDepth = int.MaxValue };
         var largeDepthBaseline = AiToolContractJson.Parse(AiToolContractJson.Serialize(Capture("{}")), largeDepth);
         Assert.Single(largeDepthBaseline.Tools);
+    }
+
+    [Theory]
+    [InlineData("description")]
+    [InlineData("property name")]
+    [InlineData("enum value")]
+    [InlineData("default value")]
+    [InlineData("reference")]
+    public void ParseRejectsCanonicalSchemaExpansionAtTheConfiguredByteBoundary(string stringFamily)
+    {
+        var limits = new AiToolContractLimits { MaxSchemaBytes = 128 };
+        var rawBaseline = Envelope(CanonicalExpansionSchema(stringFamily));
+
+        Assert.True(Encoding.UTF8.GetByteCount(rawBaseline) <= limits.MaxSchemaBytes * 2);
+        var exception = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse(rawBaseline, limits));
+
+        Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, exception.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void SerializeAndParseShareTheSameAggregateBaselineBudget()
+    {
+        var baseline = CaptureCatalog(Function("one"), Function("two"));
+        var limits = new AiToolContractLimits { MaxTools = 2, MaxSchemaBytes = 100 };
+        var serialized = AiToolContractJson.Serialize(baseline, limits);
+
+        Assert.True(Encoding.UTF8.GetByteCount(serialized) > limits.MaxSchemaBytes * 2);
+        var parsed = AiToolContractJson.Parse(serialized, limits);
+
+        Assert.True(AiToolContractVerifier.Compare(baseline, parsed, limits).IsClean);
     }
 
     [Theory]
@@ -848,6 +879,20 @@ public sealed class ContractTests
 
     private static string Envelope(string schema) =>
         "{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"inputSchema\":" + schema + ",\"returnSchema\":null,\"requiresApproval\":false}]}";
+
+    private static string CanonicalExpansionSchema(string stringFamily)
+    {
+        const string value = "éééééééééééééééééééé";
+        return stringFamily switch
+        {
+            "description" => "{\"description\":\"" + value + "\"}",
+            "property name" => "{\"properties\":{\"" + value + "\":{}}}",
+            "enum value" => "{\"enum\":[\"" + value + "\"]}",
+            "default value" => "{\"default\":\"" + value + "\"}",
+            "reference" => "{\"$ref\":\"" + value + "\"}",
+            _ => throw new ArgumentOutOfRangeException(nameof(stringFamily), stringFamily, "Unknown canonical-expansion family."),
+        };
+    }
 
     private static void AssertUnsupported(AiToolContractDiff diff)
     {

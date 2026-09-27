@@ -104,6 +104,18 @@ public sealed class AiToolContractLimits
         var requested = (long)MaxSchemaDepth + envelopeDepth;
         return (int)Math.Min(1000L, requested);
     }
+
+    internal long GetBaselineByteLimit()
+    {
+        const long maxStringBytes = int.MaxValue;
+        const long envelopeBytes = 64;
+        const long perToolEnvelopeBytes = 256;
+        var perToolBudget = Math.Min(maxStringBytes, (long)MaxSchemaBytes * 2L + perToolEnvelopeBytes);
+        if (perToolBudget > (maxStringBytes - envelopeBytes) / MaxTools)
+            return maxStringBytes;
+
+        return envelopeBytes + perToolBudget * MaxTools;
+    }
 }
 
 /// <summary>A diagnostic that explains why a result is not clean.</summary>

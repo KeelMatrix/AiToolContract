@@ -71,7 +71,7 @@ public static class AiToolContractCapture
             var baseline = new AiToolContractBaseline(captured);
             try
             {
-                baseline.ValidateLimits(effectiveLimits);
+                AiToolContractJson.ValidateBaselineLimits(baseline, effectiveLimits);
             }
             catch (AiToolContractException ex)
             {

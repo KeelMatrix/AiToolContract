@@ -111,6 +111,13 @@ No unreleased changes.
     $releaseWorkflow = Get-Content -LiteralPath $releaseWorkflowPath -Raw
     $ciWorkflowPath = Join-Path (Split-Path -Parent $PSScriptRoot) '.github/workflows/ci.yml'
     $ciWorkflow = Get-Content -LiteralPath $ciWorkflowPath -Raw
+    foreach ($jobName in @('build-test', 'quality', 'package', 'consumer-smoke')) {
+        $jobMatch = [regex]::Match($ciWorkflow, "(?ms)^  $([regex]::Escape($jobName)):\r?\n(?<body>.*?)(?=^  \S|\z)")
+        Assert-Condition $jobMatch.Success "CI job '$jobName' is missing from the workflow."
+        $timeoutMatch = [regex]::Match($jobMatch.Groups['body'].Value, '(?m)^    timeout-minutes:\s*(?<minutes>\d+)\s*$')
+        Assert-Condition $timeoutMatch.Success "CI job '$jobName' has no job-level timeout-minutes bound."
+        Assert-Condition ([int]$timeoutMatch.Groups['minutes'].Value -gt 0) "CI job '$jobName' has a non-positive timeout-minutes bound."
+    }
     Assert-Condition ($ciWorkflow -notmatch 'Verify-Package\.ps1\s+-AllowMissingIcon') 'CI allows a missing package icon.'
     Assert-Condition ($releaseWorkflow -notmatch 'Verify-Package\.ps1\s+-AllowMissingIcon') 'Release allows a missing package icon.'
     $unsafeRefLines = @($releaseWorkflow -split "`r?`n" | Where-Object {

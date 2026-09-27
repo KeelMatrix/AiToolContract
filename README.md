@@ -42,7 +42,7 @@ The verifier reports `Breaking`, `Risky`, `Additive`, or `Informational` results
 
 Malformed schemas and unknown or ambiguous schema semantics fail closed with an explicit diagnostic. Verification never overwrites a baseline or auto-approves a breaking change.
 
-The configured `AiToolContractLimits` are enforced consistently during capture, baseline parsing, comparison, and serialization. This includes schema members, actual `properties` entries, nested schemas, every supported array-valued schema/default family, schema bytes, depth, tools, and reported changes; boundary values are accepted and overflows return a resource diagnostic.
+The configured `AiToolContractLimits` are enforced consistently during capture, baseline parsing, comparison, and serialization. This includes schema members, actual `properties` entries, nested schemas, every supported array-valued schema/default family, schema bytes, depth, tools, and reported changes. A derived aggregate UTF-8 budget also bounds the complete baseline envelope, tool names/descriptions, and canonical JSON in both directions of a parse/serialize round trip. Boundary values are accepted and overflows return a resource diagnostic.
 
 ## Documentation
 
