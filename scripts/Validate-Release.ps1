@@ -49,7 +49,27 @@ if ($RequireFinalizedChangelog) {
     $remaining = $changelog.Substring($entryStart)
     $nextHeader = [regex]::Match($remaining, '(?m)^## \[')
     $entry = if ($nextHeader.Success) { $remaining.Substring(0, $nextHeader.Index) } else { $remaining }
-    Assert-Condition ($entry -notmatch '(?i)\b(planned|unreleased|not yet published|tbd)\b') "The '$Version' changelog entry still contains pre-release wording."
+    $remediationMarkers = @(
+        'planned',
+        'unreleased',
+        'not yet published',
+        'tbd',
+        'now',
+        'no longer',
+        'previously',
+        'formerly',
+        'used to',
+        'fixed',
+        'fixes',
+        'corrected',
+        'resolved',
+        'addressed',
+        'this removes',
+        'this fixes',
+        'changed from'
+    )
+    $markerPattern = '(?i)(?<!\w)(?:' + (($remediationMarkers | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')(?!\w)'
+    Assert-Condition ($entry -notmatch $markerPattern) "The '$Version' changelog entry contains pre-release remediation wording."
 
     $categories = @([regex]::Matches($entry, '(?m)^###\s+(.+?)\s*$') | ForEach-Object { $_.Groups[1].Value.Trim() })
     $otherStableEntries = @([regex]::Matches($changelog, '(?m)^## \[\d+\.\d+\.\d+\] - \d{4}-\d{2}-\d{2}\s*$') | Where-Object { $_.Value -notmatch "^## \[$escapedVersion\]" })

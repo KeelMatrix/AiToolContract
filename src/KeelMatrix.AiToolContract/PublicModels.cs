@@ -72,6 +72,12 @@ public sealed class AiToolContractLimits
         if (MaxTools < 1 || MaxSchemaBytes < 1 || MaxSchemaDepth < 1 || MaxProperties < 1 || MaxArrayItems < 1 || MaxChanges < 1)
             throw new ArgumentOutOfRangeException(nameof(AiToolContractLimits), "All contract limits must be positive.");
     }
+
+    internal int GetJsonDocumentMaxDepth(int envelopeDepth)
+    {
+        var requested = (long)MaxSchemaDepth + envelopeDepth;
+        return (int)Math.Min(1000L, requested);
+    }
 }
 
 /// <summary>A diagnostic that explains why a result is not clean.</summary>
@@ -115,6 +121,12 @@ public sealed class AiToolContractTool
         RequiresApproval = requiresApproval;
     }
 
+    internal void ValidateLimits(AiToolContractLimits limits)
+    {
+        InputSchema.ValidateLimits(limits);
+        ReturnSchema?.ValidateLimits(limits);
+    }
+
     /// <summary>Tool identity using ordinal comparison.</summary>
     public string Name { get; }
 
@@ -149,6 +161,16 @@ public sealed class AiToolContractBaseline
 
     /// <summary>Tools sorted by ordinal name.</summary>
     public IReadOnlyList<AiToolContractTool> Tools { get; }
+
+    internal void ValidateLimits(AiToolContractLimits limits)
+    {
+        limits.Validate();
+        if (Tools.Count > limits.MaxTools)
+            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, "The baseline exceeds the configured tool-count limit."));
+
+        foreach (var tool in Tools)
+            tool.ValidateLimits(limits);
+    }
 }
 
 /// <summary>Result of capturing framework tool metadata.</summary>

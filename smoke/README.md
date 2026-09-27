@@ -14,6 +14,12 @@ dotnet run --project .\smoke\PackageConsumer\PackageConsumer.csproj -c Release -
 
 The program captures a real `AIFunction`, writes and parses the baseline explicitly, verifies clean, then adds a required argument and requires a `Breaking` diff. It does not call a provider or require an API key.
 
+The repository script also validates the exact archive with the same two target surfaces used by CI and release: it runs this net8.0 consumer on Windows, Linux, and macOS in CI, and compiles `PackageConsumer.NetStandard` for netstandard2.0. Invoke it with:
+
+```powershell
+pwsh .\scripts\Invoke-PackageConsumerSmoke.ps1 -PackagePath .\artifacts\package-gate\KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg -Version 0.1.0-rc.1 -AbstractionsVersion 10.10.1
+```
+
 After the smoke run, remove the isolated feed and package cache:
 
 ```powershell

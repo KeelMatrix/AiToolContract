@@ -30,8 +30,7 @@ public static class AiToolContractJson
         effectiveLimits.Validate();
         if (baseline.SchemaVersion != 1)
             throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedBaselineVersion, "Baseline schema version " + baseline.SchemaVersion + " is not supported."));
-        if (baseline.Tools.Count > effectiveLimits.MaxTools)
-            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, "The baseline exceeds the configured tool-count limit."));
+        baseline.ValidateLimits(effectiveLimits);
 
         var tools = baseline.Tools.OrderBy(static tool => tool.Name, StringComparer.Ordinal).ToList();
         var builder = new StringBuilder();
@@ -70,7 +69,7 @@ public static class AiToolContractJson
                 throw Resource("The baseline exceeds the configured byte limit.");
 
             RejectDuplicateProperties(json, effectiveLimits);
-            using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = effectiveLimits.MaxSchemaDepth + 4, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
+            using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = effectiveLimits.GetJsonDocumentMaxDepth(4), CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
             var root = document.RootElement;
             RequireObject(root, "The baseline root must be a JSON object.");
             RequireEnvelopeMembers(root, BaselineMembers, "baseline");
@@ -131,6 +130,10 @@ public static class AiToolContractJson
         catch (OverflowException ex)
         {
             throw Resource("The baseline numeric representation exceeds the configured resource boundary: " + ex.Message);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            throw Resource("The baseline exceeds the configured resource boundary: " + ex.Message);
         }
     }
 
@@ -196,7 +199,7 @@ public static class AiToolContractJson
         {
             CommentHandling = JsonCommentHandling.Disallow,
             AllowTrailingCommas = false,
-            MaxDepth = limits.MaxSchemaDepth + 4
+            MaxDepth = limits.GetJsonDocumentMaxDepth(4)
         });
         var objects = new Stack<HashSet<string>>();
         var sawToken = false;

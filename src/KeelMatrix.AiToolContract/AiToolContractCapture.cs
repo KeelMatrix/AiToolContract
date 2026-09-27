@@ -68,7 +68,16 @@ public static class AiToolContractCapture
             }
 
             captured.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
-            return new AiToolContractCaptureResult(new AiToolContractBaseline(captured), null);
+            var baseline = new AiToolContractBaseline(captured);
+            try
+            {
+                baseline.ValidateLimits(effectiveLimits);
+            }
+            catch (AiToolContractException ex)
+            {
+                return Failure(ex.Diagnostic.Kind, ex.Diagnostic.Message);
+            }
+            return new AiToolContractCaptureResult(baseline, null);
         }
         catch (ArgumentOutOfRangeException ex)
         {

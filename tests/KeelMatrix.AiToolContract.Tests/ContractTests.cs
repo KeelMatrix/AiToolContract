@@ -277,6 +277,51 @@ public sealed class ContractTests
     }
 
     [Fact]
+    public void EveryPublicLimitEntryPointRechecksCatalogSchemasAndBoundaries()
+    {
+        var twoTools = CaptureCatalog(Function("one"), Function("two"));
+        AssertResource(() => AiToolContractVerifier.Compare(twoTools, twoTools, new AiToolContractLimits { MaxTools = 1 }));
+        AssertResource(() => AiToolContractJson.Serialize(twoTools, new AiToolContractLimits { MaxTools = 1 }));
+
+        var properties = Capture("{\"properties\":{\"a\":{},\"b\":{}}}");
+        Assert.True(AiToolContractVerifier.Compare(properties, properties, new AiToolContractLimits { MaxProperties = 3 }).IsClean);
+        AssertResource(() => AiToolContractVerifier.Compare(properties, properties, new AiToolContractLimits { MaxProperties = 2 }));
+        AssertResource(() => AiToolContractJson.Serialize(properties, new AiToolContractLimits { MaxProperties = 2 }));
+        AssertResource(() => AiToolContractJson.Parse(AiToolContractJson.Serialize(properties), new AiToolContractLimits { MaxProperties = 2 }));
+
+        var nested = Capture("{\"properties\":{\"a\":{\"properties\":{\"b\":{}}}}}");
+        Assert.True(AiToolContractVerifier.Compare(nested, nested, new AiToolContractLimits { MaxSchemaDepth = 3 }).IsClean);
+        AssertResource(() => AiToolContractVerifier.Compare(nested, nested, new AiToolContractLimits { MaxSchemaDepth = 2 }));
+
+        var bytes = Capture("{\"description\":\"" + new string('x', 100) + "\"}");
+        AssertResource(() => AiToolContractVerifier.Compare(bytes, bytes, new AiToolContractLimits { MaxSchemaBytes = 32 }));
+        AssertResource(() => AiToolContractJson.Serialize(bytes, new AiToolContractLimits { MaxSchemaBytes = 32 }));
+
+        var arrays = Capture("{\"enum\":[1,2]}");
+        Assert.True(AiToolContractVerifier.Compare(arrays, arrays, new AiToolContractLimits { MaxArrayItems = 2 }).IsClean);
+        AssertResource(() => AiToolContractVerifier.Compare(arrays, arrays, new AiToolContractLimits { MaxArrayItems = 1 }));
+        AssertResource(() => AiToolContractJson.Serialize(arrays, new AiToolContractLimits { MaxArrayItems = 1 }));
+
+        var largeDepth = new AiToolContractLimits { MaxSchemaDepth = int.MaxValue };
+        var largeDepthBaseline = AiToolContractJson.Parse(AiToolContractJson.Serialize(Capture("{}")), largeDepth);
+        Assert.Single(largeDepthBaseline.Tools);
+    }
+
+    [Theory]
+    [InlineData("{\"enum\":[1,2]}")]
+    [InlineData("{\"type\":[\"string\",\"null\"]}")]
+    [InlineData("{\"required\":[\"first\",\"second\"]}")]
+    [InlineData("{\"default\":[1,2]}")]
+    [InlineData("{\"default\":[[1,2]]}")]
+    public void ArrayItemLimitCoversAllNormalizedArrayFamilies(string schema)
+    {
+        var result = CaptureWithLimits(schema, new AiToolContractLimits { MaxArrayItems = 1 });
+
+        Assert.False(result.Succeeded, schema);
+        Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, result.Diagnostic!.Kind);
+    }
+
+    [Fact]
     public void BreakingChangesAreNeverAutomaticallyAccepted()
     {
         var baseline = Capture("{\"type\":\"object\"}");
@@ -809,6 +854,12 @@ public sealed class ContractTests
         Assert.False(diff.IsClean);
         Assert.Contains(diff.Changes, static change => change.Kind == AiToolChangeKind.Unsupported);
         Assert.Contains(diff.Diagnostics, static diagnostic => diagnostic.Kind == AiToolDiagnosticKind.UnsupportedClassification);
+    }
+
+    private static void AssertResource(Action operation)
+    {
+        var exception = Assert.Throws<AiToolContractException>(operation);
+        Assert.Equal(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, exception.Diagnostic.Kind);
     }
 
     private static IEnumerable<string[]> Permutations(string[] values)

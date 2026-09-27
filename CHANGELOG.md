@@ -4,7 +4,7 @@ This file records consumer-facing changes to KeelMatrix.AiToolContract.
 
 ## [Unreleased]
 
-No unreleased changes.
+- Resource limits are enforced consistently across capture, baseline parsing, comparison, and serialization, including nested schemas and supported JSON values.
 
 ## [0.1.0-rc.1] - 2026-09-26
 

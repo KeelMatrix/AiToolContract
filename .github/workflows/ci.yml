@@ -75,8 +75,13 @@ jobs:
         shell: pwsh
         run: ./tests/Validate-Release.Tests.ps1
 
+      - name: Verify vulnerability audit contract
+        shell: pwsh
+        run: ./tests/VulnerabilityAudit.Tests.ps1
+
       - name: Audit dependencies
-        run: dotnet list KeelMatrix.AiToolContract.sln package --vulnerable --include-transitive
+        shell: pwsh
+        run: ./scripts/Invoke-VulnerabilityAudit.ps1 -Solution ./KeelMatrix.AiToolContract.sln -ConfigFile ./NuGet.config
 
   package:
     name: Pack and inspect archive
@@ -92,7 +97,7 @@ jobs:
 
       - name: Run package gate
         shell: pwsh
-        run: ./scripts/Verify-Package.ps1 -AllowMissingIcon
+        run: ./scripts/Verify-Package.ps1
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
@@ -102,9 +107,16 @@ jobs:
           if-no-files-found: error
 
   consumer-smoke:
-    name: Package consumer smoke
+    name: Package consumer smoke (${{ matrix.os }})
     needs: package
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -120,28 +132,11 @@ jobs:
           name: package-gate
           path: artifacts/package-gate
 
-      - name: Restore, build, and run clean consumer
+      - name: Restore, build, and run clean consumers from exact artifact
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $feed = Join-Path $env:GITHUB_WORKSPACE 'smoke/feed'
-          $packages = Join-Path $env:RUNNER_TEMP 'ai-tool-contract-smoke-packages'
-          New-Item -ItemType Directory -Path $feed -Force | Out-Null
-          Copy-Item (Join-Path $env:GITHUB_WORKSPACE 'artifacts/package-gate/KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg') $feed -Force
-
-          function Invoke-Dotnet([string[]] $Arguments) {
-              & dotnet @Arguments
-              if ($LASTEXITCODE -ne 0) {
-                  throw "dotnet $($Arguments -join ' ') exited with code $LASTEXITCODE."
-              }
-          }
-
-          try {
-              Invoke-Dotnet @('restore', 'smoke/PackageConsumer/PackageConsumer.csproj', '--configfile', 'smoke/PackageConsumer/NuGet.config', '--packages', $packages, '--no-cache')
-              Invoke-Dotnet @('build', 'smoke/PackageConsumer/PackageConsumer.csproj', '--configuration', 'Release', '--no-restore')
-              Invoke-Dotnet @('run', '--project', 'smoke/PackageConsumer/PackageConsumer.csproj', '--configuration', 'Release', '--no-restore', '--no-build')
-          }
-          finally {
-              Remove-Item -LiteralPath $feed -Recurse -Force -ErrorAction SilentlyContinue
-              Remove-Item -LiteralPath $packages -Recurse -Force -ErrorAction SilentlyContinue
-          }
+          ./scripts/Invoke-PackageConsumerSmoke.ps1 `
+            -PackagePath (Join-Path $env:GITHUB_WORKSPACE 'artifacts/package-gate/KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg') `
+            -Version '0.1.0-rc.1' `
+            -AbstractionsVersion '10.10.1'

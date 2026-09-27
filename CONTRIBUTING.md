@@ -16,7 +16,7 @@ Run focused tests while developing, then the full local validation command befor
 dotnet restore .\KeelMatrix.AiToolContract.sln
 dotnet test .\KeelMatrix.AiToolContract.sln -c Release --no-restore
 dotnet pack .\src\KeelMatrix.AiToolContract\KeelMatrix.AiToolContract.csproj -c Release --no-restore -o .\artifacts
-dotnet list .\KeelMatrix.AiToolContract.sln package --vulnerable --include-transitive
+pwsh .\scripts\Invoke-VulnerabilityAudit.ps1 -Solution .\KeelMatrix.AiToolContract.sln -ConfigFile .\NuGet.config
 ```
 
 Changes to the baseline schema, classification rules, documentation, package metadata, or public API require corresponding tests and documentation updates. Keep generated build output and local feeds out of commits.
@@ -24,4 +24,3 @@ Changes to the baseline schema, classification rules, documentation, package met
 ## Submitting a change
 
 Explain the consumer problem, the behavioral contract, tests run, and any compatibility or privacy consequence. For security reports, follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
-

@@ -207,6 +207,11 @@ internal sealed class NormalizedSchema
         return true;
     }
 
+    internal void ValidateLimits(AiToolContractLimits limits)
+    {
+        new LimitValidator(limits).Validate(this, "$", 0);
+    }
+
     private static bool NullableValuesEqual(IReadOnlyList<NormalizedJsonValue>? left, IReadOnlyList<NormalizedJsonValue>? right)
     {
         if (left is null || right is null)
@@ -250,6 +255,111 @@ internal sealed class NormalizedSchema
     }
 
     private static void WriteString(StringBuilder builder, string value) => builder.Append(JsonSerializer.Serialize(value));
+
+    private sealed class LimitValidator
+    {
+        private readonly AiToolContractLimits _limits;
+        private int _propertyCount;
+        private int _arrayItemCount;
+
+        internal LimitValidator(AiToolContractLimits limits)
+        {
+            _limits = limits;
+        }
+
+        internal void Validate(NormalizedSchema schema, string path, int depth)
+        {
+            EnsureDepth(depth, path);
+            if (Encoding.UTF8.GetByteCount(schema.ToCanonicalJson()) > _limits.MaxSchemaBytes)
+                throw Resource("The JSON Schema exceeds the configured byte limit.");
+
+            CountSchemaMember(schema.Reference is not null);
+            CountSchemaMember(schema.Description is not null);
+            CountSchemaMember(schema.HasDefault);
+            CountSchemaMember(schema.Format is not null);
+            CountSchemaMember(schema.Types.Count > 0);
+            if (schema.Types.Count > 1)
+                CountArrayItems(schema.Types.Count);
+
+            CountSchemaMember(schema.EnumValues is not null);
+            if (schema.EnumValues is not null)
+                CountArrayItems(schema.EnumValues.Count);
+
+            CountSchemaMember(schema.Items is not null);
+            CountSchemaMember(schema.Minimum.HasValue);
+            CountSchemaMember(schema.Maximum.HasValue);
+            CountSchemaMember(schema.ExclusiveMinimum.HasValue);
+            CountSchemaMember(schema.ExclusiveMaximum.HasValue);
+            CountSchemaMember(schema.MinLength.HasValue);
+            CountSchemaMember(schema.MaxLength.HasValue);
+            CountSchemaMember(schema.MinItems.HasValue);
+            CountSchemaMember(schema.MaxItems.HasValue);
+
+            CountSchemaMember(schema.Properties.Count > 0);
+            foreach (var property in schema.Properties)
+            {
+                CountPropertyEntry(property.Key, path + ".properties");
+                Validate(property.Value, path + ".properties." + property.Key, depth + 1);
+            }
+
+            CountSchemaMember(schema.Required.Count > 0);
+            if (schema.Required.Count > 0)
+                CountArrayItems(schema.Required.Count);
+
+            if (schema.HasDefault)
+                ValidateValue(schema.DefaultValue!, path + ".default", depth + 1);
+            if (schema.Items is not null)
+                Validate(schema.Items, path + ".items", depth + 1);
+        }
+
+        private void ValidateValue(NormalizedJsonValue value, string path, int depth)
+        {
+            EnsureDepth(depth, path);
+            switch (value.Kind)
+            {
+                case NormalizedJsonValueKind.Array:
+                    CountArrayItems(value.ArrayValue!.Count);
+                    foreach (var item in value.ArrayValue)
+                        ValidateValue(item, path + "[]", depth + 1);
+                    break;
+                case NormalizedJsonValueKind.Object:
+                    foreach (var property in value.ObjectValue!)
+                    {
+                        CountPropertyEntry(property.Key, path);
+                        ValidateValue(property.Value, path + "." + property.Key, depth + 1);
+                    }
+                    break;
+            }
+        }
+
+        private void CountSchemaMember(bool present)
+        {
+            if (present && ++_propertyCount > _limits.MaxProperties)
+                throw Resource("The JSON Schema exceeds the configured property limit.");
+        }
+
+        private void CountPropertyEntry(string name, string path)
+        {
+            if (++_propertyCount > _limits.MaxProperties)
+                throw Resource("The JSON Schema exceeds the configured property limit at " + path + "." + name + ".");
+        }
+
+        private void CountArrayItems(int count)
+        {
+            if (count > _limits.MaxArrayItems - _arrayItemCount)
+                throw Resource("The JSON Schema exceeds the configured array-item limit.");
+            _arrayItemCount += count;
+        }
+
+        private void EnsureDepth(int depth, string path)
+        {
+            if (depth >= _limits.MaxSchemaDepth)
+                throw Resource("The JSON Schema exceeds the configured depth limit at " + path + ".");
+        }
+
+        private static AiToolContractException Resource(string message) =>
+            new(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, message));
+    }
 }
 
 internal enum NormalizedJsonValueKind
@@ -455,7 +565,7 @@ internal static class SchemaNormalizer
             throw Resource("The JSON Schema exceeds the configured byte limit.");
         try
         {
-            using var document = JsonDocument.Parse(raw, new JsonDocumentOptions { MaxDepth = limits.MaxSchemaDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
+            using var document = JsonDocument.Parse(raw, new JsonDocumentOptions { MaxDepth = limits.GetJsonDocumentMaxDepth(0), CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
             return new Normalizer(limits, AiToolDiagnosticKind.MalformedBaseline).NormalizeSchema(document.RootElement, "$", 0);
         }
         catch (AiToolContractException)
@@ -469,6 +579,10 @@ internal static class SchemaNormalizer
         catch (OverflowException ex)
         {
             throw Resource("The JSON Schema numeric representation exceeds the configured resource boundary: " + ex.Message);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            throw Resource("The JSON Schema exceeds the configured resource boundary: " + ex.Message);
         }
     }
 
@@ -574,6 +688,8 @@ internal static class SchemaNormalizer
                         Require(member.Value, JsonValueKind.Object, memberPath);
                         foreach (var property in member.Value.EnumerateObject())
                         {
+                            if (++_propertyCount > _limits.MaxProperties)
+                                throw Resource("The JSON Schema exceeds the configured property limit.");
                             if (properties.ContainsKey(property.Name))
                                 throw MalformedAt("The JSON Schema contains duplicate property '" + property.Name + "' at " + memberPath + ".");
                             properties.Add(property.Name, NormalizeSchema(property.Value, memberPath + "." + property.Name, depth + 1));

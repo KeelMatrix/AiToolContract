@@ -54,6 +54,14 @@ jobs:
           RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
         run: dotnet test KeelMatrix.AiToolContract.sln --configuration Release --no-build --no-restore -p:Version=$env:RELEASE_VERSION
 
+      - name: Verify vulnerability audit contract
+        shell: pwsh
+        run: ./tests/VulnerabilityAudit.Tests.ps1
+
+      - name: Audit dependencies
+        shell: pwsh
+        run: ./scripts/Invoke-VulnerabilityAudit.ps1 -Solution ./KeelMatrix.AiToolContract.sln -ConfigFile ./NuGet.config
+
       - name: Run package gate
         shell: pwsh
         env:
@@ -65,6 +73,12 @@ jobs:
         env:
           RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
         run: ./scripts/Validate-Release.ps1 -Version $env:RELEASE_VERSION -Tag $env:RELEASE_TAG -PackageDirectory ./artifacts/package-gate -RequireFinalizedChangelog
+
+      - name: Validate exact release artifact with clean consumers
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
+        run: ./scripts/Invoke-PackageConsumerSmoke.ps1 -PackagePath "./artifacts/package-gate/KeelMatrix.AiToolContract.$env:RELEASE_VERSION.nupkg" -Version $env:RELEASE_VERSION -AbstractionsVersion '10.10.1'
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4

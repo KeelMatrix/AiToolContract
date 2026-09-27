@@ -35,4 +35,6 @@ The package targets `net8.0` and `netstandard2.0` and is intended for cross-plat
 
 Malformed schemas and valid schema forms whose semantics are not represented by the closed normalized model fail closed with an explicit diagnostic. Standard JSON Schema type arrays express nullability; the OpenAPI `nullable` keyword is unsupported.
 
+The configured `AiToolContractLimits` are enforced consistently during capture, baseline parsing, comparison, and serialization. This includes schema members, actual `properties` entries, nested schemas, every supported array-valued schema/default family, schema bytes, depth, tools, and reported changes; boundary values are accepted and overflows return a resource diagnostic.
+
 See the [JSON Schema support matrix](https://github.com/KeelMatrix/AiToolContract/blob/main/docs/JSON-SCHEMA-SUPPORT.md) for the version-one keyword surface. See the [repository documentation](https://github.com/KeelMatrix/AiToolContract) for baseline acceptance, compatibility categories, limits, and privacy guidance.
