@@ -124,6 +124,10 @@ No unreleased changes.
     Assert-Condition ($publishLines.Count -eq 2) "The release workflow must push exactly the nupkg and snupkg artifacts, found $($publishLines.Count) push command(s)."
     Assert-Condition ($releaseWorkflow -notmatch '(?i)--skip-duplicate') 'The release workflow suppresses duplicate package failures.'
     Assert-Condition ($publishLines -match '\$nupkg' -and $publishLines -match '\$snupkg') 'The release workflow does not fail closed on both package artifact pushes.'
+    $nupkgPublishLines = @($publishLines | Where-Object { $_ -match '\$nupkg' })
+    $snupkgPublishLines = @($publishLines | Where-Object { $_ -match '\$snupkg' })
+    Assert-Condition ($nupkgPublishLines.Count -eq 1 -and $nupkgPublishLines[0] -match '(?i)--no-symbols') 'The primary package push does not suppress implicit symbol submission.'
+    Assert-Condition ($snupkgPublishLines.Count -eq 1 -and $snupkgPublishLines[0] -notmatch '\$nupkg') 'The explicit symbol push is not isolated to the symbol artifact.'
     $previousReleaseTag = $env:RELEASE_TAG
     try {
         $env:RELEASE_TAG = $maliciousRef

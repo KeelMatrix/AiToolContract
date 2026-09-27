@@ -102,7 +102,7 @@ jobs:
           $version = $env:RELEASE_VERSION
           $nupkg = "./artifacts/package-gate/KeelMatrix.AiToolContract.$version.nupkg"
           $snupkg = "./artifacts/package-gate/KeelMatrix.AiToolContract.$version.snupkg"
-          dotnet nuget push $nupkg --source https://api.nuget.org/v3/index.json --api-key $env:NUGET_API_KEY
+          dotnet nuget push $nupkg --no-symbols --source https://api.nuget.org/v3/index.json --api-key $env:NUGET_API_KEY
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet nuget push $snupkg --source https://api.nuget.org/v3/index.json --api-key $env:NUGET_API_KEY
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

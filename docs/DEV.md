@@ -19,6 +19,8 @@ dotnet pack .\src\KeelMatrix.AiToolContract\KeelMatrix.AiToolContract.csproj -c 
 pwsh .\scripts\Invoke-VulnerabilityAudit.ps1 -Solution .\KeelMatrix.AiToolContract.sln -ConfigFile .\NuGet.config
 ```
 
+The vulnerability audit validates the scanner's JSON structure before walking findings. A missing, wrong-type, truncated, or structurally malformed top-level, project, framework, package, or vulnerability node fails closed instead of being treated as a clean audit.
+
 ## Package and archive gate
 
 Run the repository-controlled gate from the repository root. It restores the solution, builds the packable project, creates the exact `.nupkg` and `.snupkg`, and inspects their metadata and contents.
