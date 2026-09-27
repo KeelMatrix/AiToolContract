@@ -75,7 +75,7 @@ jobs:
         shell: pwsh
         run: ./tests/Validate-Release.Tests.ps1
 
-      - name: Verify vulnerability audit contract
+      - name: Verify vulnerability audit contract and casing policy
         shell: pwsh
         run: ./tests/VulnerabilityAudit.Tests.ps1
 

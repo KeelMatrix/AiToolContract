@@ -19,7 +19,7 @@ dotnet pack .\src\KeelMatrix.AiToolContract\KeelMatrix.AiToolContract.csproj -c 
 pwsh .\scripts\Invoke-VulnerabilityAudit.ps1 -Solution .\KeelMatrix.AiToolContract.sln -ConfigFile .\NuGet.config
 ```
 
-The vulnerability audit validates the scanner's JSON structure before walking findings. A missing, wrong-type, truncated, or structurally malformed top-level, project, framework, package, or vulnerability node fails closed instead of being treated as a clean audit.
+The vulnerability audit validates the scanner's JSON structure before walking findings. It requires the scanner's canonical, case-sensitive property names; casing variants are malformed and fail closed. A missing, wrong-type, truncated, or structurally malformed top-level, project, framework, package, or vulnerability node fails closed instead of being treated as a clean audit. Any applicable finding in either top-level or transitive package collections produces a non-zero result.
 
 ## Package and archive gate
 

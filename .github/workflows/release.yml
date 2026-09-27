@@ -54,7 +54,7 @@ jobs:
           RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
         run: dotnet test KeelMatrix.AiToolContract.sln --configuration Release --no-build --no-restore -p:Version=$env:RELEASE_VERSION
 
-      - name: Verify vulnerability audit contract
+      - name: Verify vulnerability audit contract and casing policy
         shell: pwsh
         run: ./tests/VulnerabilityAudit.Tests.ps1
 
