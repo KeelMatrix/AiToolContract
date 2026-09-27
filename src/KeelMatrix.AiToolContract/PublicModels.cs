@@ -5,41 +5,67 @@ namespace KeelMatrix.AiToolContract;
 /// <summary>Compatibility severity assigned to a contract difference.</summary>
 public enum AiToolCompatibility
 {
+    /// <summary>No compatibility concern.</summary>
     Informational = 0,
+    /// <summary>Compatible additive change.</summary>
     Additive = 1,
+    /// <summary>Change requiring review.</summary>
     Risky = 2,
+    /// <summary>Change that can break a consumer.</summary>
     Breaking = 3
 }
 
 /// <summary>Kind of contract difference found between two baselines.</summary>
 public enum AiToolChangeKind
 {
+    /// <summary>A tool was added.</summary>
     ToolAdded,
+    /// <summary>A tool was removed.</summary>
     ToolRemoved,
+    /// <summary>A required parameter was added.</summary>
     RequiredParameterAdded,
+    /// <summary>A parameter was removed.</summary>
     ParameterRemoved,
+    /// <summary>A parameter type changed.</summary>
     TypeChanged,
+    /// <summary>An enum value was removed.</summary>
     EnumNarrowed,
+    /// <summary>An enum value was added.</summary>
     EnumExpanded,
+    /// <summary>A schema constraint was narrowed.</summary>
     ConstraintNarrowed,
+    /// <summary>A schema constraint was expanded.</summary>
     ConstraintExpanded,
+    /// <summary>An optional parameter was added.</summary>
     OptionalParameterAdded,
+    /// <summary>A return schema became more restrictive.</summary>
     ReturnSchemaBreaking,
+    /// <summary>A return schema became less restrictive.</summary>
     ReturnSchemaAdditive,
+    /// <summary>A model-facing description changed.</summary>
     DescriptionChanged,
+    /// <summary>Approval or safety metadata changed.</summary>
     ApprovalSafetyMetadataChanged,
+    /// <summary>A change could not be classified safely.</summary>
     Unsupported
 }
 
 /// <summary>Diagnostic category for a capture, baseline, resource, or comparison result.</summary>
 public enum AiToolDiagnosticKind
 {
+    /// <summary>Capture of framework metadata failed.</summary>
     CaptureFailure,
+    /// <summary>Two tools have the same identity.</summary>
     DuplicateToolIdentity,
+    /// <summary>The baseline is malformed.</summary>
     MalformedBaseline,
+    /// <summary>The baseline version is not supported.</summary>
     UnsupportedBaselineVersion,
+    /// <summary>A canonicalization or resource limit was exceeded.</summary>
     CanonicalizationOrResourceLimit,
+    /// <summary>A compatibility difference was found.</summary>
     CompatibilityDifference,
+    /// <summary>A difference could not be classified safely.</summary>
     UnsupportedClassification
 }
 

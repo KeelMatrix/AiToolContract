@@ -99,6 +99,10 @@ No unreleased changes.
 
     $packageGatePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/Verify-Package.ps1'
     $packageGate = Get-Content -LiteralPath $packageGatePath -Raw
+    $projectPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'src/KeelMatrix.AiToolContract/KeelMatrix.AiToolContract.csproj'
+    $project = Get-Content -LiteralPath $projectPath -Raw
+    Assert-Condition ($project -match '<GenerateDocumentationFile>true</GenerateDocumentationFile>') 'The shipping project does not enable XML documentation generation.'
+    Assert-Condition ($packageGate -match 'lib/net8\.0/KeelMatrix\.AiToolContract\.xml' -and $packageGate -match 'lib/netstandard2\.0/KeelMatrix\.AiToolContract\.xml') 'The package gate does not require XML documentation for both target frameworks.'
     Assert-Condition ($packageGate -match 'MISSING_PACKAGE_ICON') 'The package gate does not fail closed for a missing icon.'
     Assert-Condition ($packageGate -match 'Get-PngDimension' -and $packageGate -match '512') 'The package gate does not validate icon dimensions.'
     Assert-Condition ($packageGate -match 'nuspec icon metadata' -and $packageGate -match 'byte-identical') 'The package gate does not validate icon metadata and byte identity.'
@@ -116,6 +120,10 @@ No unreleased changes.
     Assert-Condition ($unsafeRefLines.Count -eq 0) "The release workflow embeds an untrusted ref directly outside its environment boundary: $($unsafeRefLines -join ' | ')"
     Assert-Condition ($releaseWorkflow -match '(?m)^\s*RELEASE_TAG:\s*\$\{\{\s*github\.ref_name\s*\}\}\s*$') 'The release workflow does not pass the tag through an environment boundary.'
     Assert-Condition ($releaseWorkflow -match '(?m)^\s*\$tag\s*=\s*\$env:RELEASE_TAG\s*$') "The release workflow could execute a legal malicious ref such as '$maliciousRef'."
+    $publishLines = @($releaseWorkflow -split "`r?`n" | Where-Object { $_ -match 'dotnet nuget push' })
+    Assert-Condition ($publishLines.Count -eq 2) "The release workflow must push exactly the nupkg and snupkg artifacts, found $($publishLines.Count) push command(s)."
+    Assert-Condition ($releaseWorkflow -notmatch '(?i)--skip-duplicate') 'The release workflow suppresses duplicate package failures.'
+    Assert-Condition ($publishLines -match '\$nupkg' -and $publishLines -match '\$snupkg') 'The release workflow does not fail closed on both package artifact pushes.'
     $previousReleaseTag = $env:RELEASE_TAG
     try {
         $env:RELEASE_TAG = $maliciousRef

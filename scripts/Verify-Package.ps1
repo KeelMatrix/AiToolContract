@@ -128,7 +128,7 @@ function Assert-ExactEntries([string[]] $actual, [string[]] $expected, [string] 
 $projectPaths = @(Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter '*.csproj' -File | Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' } | Sort-Object FullName)
 $projectEvaluations = [System.Collections.Generic.List[object]]::new()
 foreach ($projectPath in $projectPaths) {
-    $evaluationOutput = & dotnet msbuild $projectPath.FullName -getProperty:IsPackable -getProperty:IsShippingProject 2>&1
+    $evaluationOutput = & dotnet msbuild $projectPath.FullName -getProperty:IsPackable -getProperty:IsShippingProject -getProperty:GenerateDocumentationFile 2>&1
     if ($LASTEXITCODE -ne 0) {
         Fail "MSBuild packability evaluation failed for '$($projectPath.FullName)'."
         continue
@@ -138,11 +138,13 @@ foreach ($projectPath in $projectPaths) {
         $evaluation = (($evaluationOutput | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine) | ConvertFrom-Json
         $isPackable = [string]$evaluation.Properties.IsPackable
         $isShippingProject = [string]$evaluation.Properties.IsShippingProject
-        Write-Host ("PROJECT_PACKABILITY: {0}; IsPackable={1}; IsShippingProject={2}" -f $projectPath.FullName.Substring($repoRoot.Length + 1), $isPackable, $isShippingProject)
+        $generateDocumentationFile = [string]$evaluation.Properties.GenerateDocumentationFile
+        Write-Host ("PROJECT_PACKABILITY: {0}; IsPackable={1}; IsShippingProject={2}; GenerateDocumentationFile={3}" -f $projectPath.FullName.Substring($repoRoot.Length + 1), $isPackable, $isShippingProject, $generateDocumentationFile)
         $projectEvaluations.Add([pscustomobject]@{
                 Path = $projectPath.FullName
                 IsPackable = $isPackable
                 IsShippingProject = $isShippingProject
+                GenerateDocumentationFile = $generateDocumentationFile
             })
     }
     catch {
@@ -155,6 +157,7 @@ $packableShippingProjects = @($packableProjects | Where-Object { $_.IsShippingPr
 Require ($projectEvaluations.Count -eq $projectPaths.Count) 'Packability evaluation did not produce one result for every project.'
 Require ($packableProjects.Count -eq 1) "Expected exactly one packable project, found $($packableProjects.Count)."
 Require ($packableShippingProjects.Count -eq 1 -and $packableShippingProjects[0].Path -eq $project) 'Expected exactly one packable shipping project, and it must be the shipping library.'
+Require ($packableShippingProjects.Count -eq 1 -and $packableShippingProjects[0].GenerateDocumentationFile -ceq 'true') 'The packable shipping project must enable XML documentation generation for every target framework.'
 Write-Host ("PACKABLE_PROJECT_COUNT: {0}; PACKABLE_SHIPPING_PROJECT_COUNT: {1}" -f $packableProjects.Count, $packableShippingProjects.Count)
 
 Write-Host "Package gate root: $repoRoot"
@@ -218,7 +221,9 @@ if ((Test-Path -LiteralPath $nupkgPath -PathType Leaf) -and (Test-Path -LiteralP
             'LICENSE',
             'README.md',
             'lib/net8.0/KeelMatrix.AiToolContract.dll',
+            'lib/net8.0/KeelMatrix.AiToolContract.xml',
             'lib/netstandard2.0/KeelMatrix.AiToolContract.dll',
+            'lib/netstandard2.0/KeelMatrix.AiToolContract.xml',
             '[Content_Types].xml',
             'package/services/metadata/core-properties/nuget.psmdcp'
         )

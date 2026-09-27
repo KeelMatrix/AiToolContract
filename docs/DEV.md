@@ -27,7 +27,7 @@ Run the repository-controlled gate from the repository root. It restores the sol
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Verify-Package.ps1
 ```
 
-The default gate fails closed with `MISSING_PACKAGE_ICON` when the founder-owned repository-root `icon.png` is absent or invalid. The required path is resolved by the `PackageIcon` and pack item entries in `src/KeelMatrix.AiToolContract/KeelMatrix.AiToolContract.csproj`; no project-local icon copy is required.
+The default gate fails closed with `MISSING_PACKAGE_ICON` when the repository-root `icon.png` is absent or invalid. The required path is resolved by the `PackageIcon` and pack item entries in `src/KeelMatrix.AiToolContract/KeelMatrix.AiToolContract.csproj`; no project-local icon copy is required.
 
 The optional `-AllowMissingIcon` switch is reserved for local pre-icon diagnostics and is not used by CI or release workflows. When the icon is present, the gate validates its 512x512 dimensions, metadata, package entry, and byte identity.
 
