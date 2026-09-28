@@ -8,6 +8,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $repoRoot 'build/Invoke-NestedPwsh.ps1')
+$launchGuard = Join-Path $repoRoot 'build/Test-NestedPwshLaunch.ps1'
+& $launchGuard
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $project = Join-Path $repoRoot 'src\KeelMatrix.AiToolContract\KeelMatrix.AiToolContract.csproj'
 $solution = Join-Path $repoRoot 'KeelMatrix.AiToolContract.sln'
 $packageReadmePath = Join-Path $repoRoot 'src\KeelMatrix.AiToolContract\README.md'
