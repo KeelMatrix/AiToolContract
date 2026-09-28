@@ -14,7 +14,7 @@ function Get-LaunchViolations([string]$Path) {
     $parseErrors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$parseErrors)
     if ($parseErrors.Count -gt 0) {
-        return @("$Path contains PowerShell parse errors.")
+        return @("${Path} contains PowerShell parse errors.")
     }
 
     $source = [IO.File]::ReadAllText($Path)
@@ -45,7 +45,7 @@ function Get-LaunchViolations([string]$Path) {
         }
 
         if ($commandName -eq 'Start-Process' -and
-            $source -notmatch '(?i)(?:-WindowStyle\s+[''\"]?Hidden|CreateNoWindow|NoNewWindow)') {
+            $source -notmatch '(?i)(?:-WindowStyle\s+[''"]?Hidden|(?:\.)?WindowStyle\s*=\s*[''"]?Hidden|CreateNoWindow|NoNewWindow)') {
             [void]$violations.Add("${Path}:$($command.Extent.StartLineNumber): Start-Process lacks hidden-window containment")
         }
     }
@@ -63,13 +63,13 @@ if ($SelfTest) {
         [IO.File]::WriteAllText($directPath, '& pwsh -NoProfile')
         [IO.File]::WriteAllText($processPath, "Start-Process 'example.exe'")
         [IO.File]::WriteAllText($safePath, "Invoke-NestedPwsh -ArgumentList @('-NoProfile')")
-        if ((Get-LaunchViolations $directPath).Count -eq 0) {
+        if (@(Get-LaunchViolations $directPath).Count -eq 0) {
             throw 'The guard self-test did not reject a direct nested PowerShell launch.'
         }
-        if ((Get-LaunchViolations $processPath).Count -eq 0) {
+        if (@(Get-LaunchViolations $processPath).Count -eq 0) {
             throw 'The guard self-test did not reject a visible Start-Process launch.'
         }
-        if ((Get-LaunchViolations $safePath).Count -ne 0) {
+        if (@(Get-LaunchViolations $safePath).Count -ne 0) {
             throw 'The guard self-test rejected a helper-mediated launch.'
         }
     }
@@ -91,7 +91,7 @@ $scriptFiles = Get-ChildItem -LiteralPath $repositoryRoot -Recurse -File -Filter
     }
 $violations = @($scriptFiles | ForEach-Object { Get-LaunchViolations $_.FullName })
 if ($violations.Count -gt 0) {
-    throw "Visible child process launch sites must use the shared containment helper:`n$($violations -join "`n")"
+    throw "Visible child process launch sites must use the shared containment helper."
 }
 
 Write-Output 'Nested PowerShell launch guard passed.'
