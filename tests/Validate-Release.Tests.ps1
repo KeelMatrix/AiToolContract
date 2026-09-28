@@ -1,5 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path (Split-Path -Parent $PSScriptRoot) 'build/Invoke-NestedPwsh.ps1')
+
 $scriptPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/Validate-Release.ps1'
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) "ai-tool-contract-release-tests-$([Guid]::NewGuid().ToString('N'))"
 $packageDirectory = Join-Path $temporaryRoot 'packages'
@@ -138,7 +140,7 @@ No unreleased changes.
     $previousReleaseTag = $env:RELEASE_TAG
     try {
         $env:RELEASE_TAG = $maliciousRef
-        $probeOutput = @(& pwsh -NoProfile -NonInteractive -Command "`$tag = `$env:RELEASE_TAG; if (`$tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') { 'REJECTED' } else { 'ACCEPTED' }" 2>&1)
+        $probeOutput = @(Invoke-NestedPwsh -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', "`$tag = `$env:RELEASE_TAG; if (`$tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') { 'REJECTED' } else { 'ACCEPTED' }") 2>&1)
         $probeExitCode = $LASTEXITCODE
         Assert-Condition ($probeExitCode -eq 0 -and ($probeOutput -join "`n") -ceq 'REJECTED') "A malicious tag value was not rejected as data: '$maliciousRef'."
     }

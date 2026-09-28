@@ -73,6 +73,14 @@ jobs:
       - name: Verify formatting
         run: dotnet format KeelMatrix.AiToolContract.sln --verify-no-changes --no-restore
 
+      - name: Verify hidden child PowerShell launches
+        shell: pwsh
+        run: ./build/Test-NestedPwshLaunch.ps1 -SelfTest
+
+      - name: Verify repository child PowerShell launches
+        shell: pwsh
+        run: ./build/Test-NestedPwshLaunch.ps1
+
       - name: Verify release contract helper
         shell: pwsh
         run: ./tests/Validate-Release.Tests.ps1
