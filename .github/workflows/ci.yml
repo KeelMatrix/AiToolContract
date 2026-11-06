@@ -45,6 +45,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Verify package gate control flow
+        shell: pwsh
+        run: ./tests/PackageGate.Tests.ps1
+
       - name: Restore
         run: dotnet restore KeelMatrix.AiToolContract.sln --configfile NuGet.config -p:AiToolContractAbstractionsVersion=${{ matrix.abstractions }}
 

@@ -26,6 +26,7 @@ The vulnerability audit validates the scanner's JSON structure before walking fi
 Run the repository-controlled gate from the repository root. It restores the solution, builds the packable project, creates the exact `.nupkg` and `.snupkg`, and inspects their metadata and contents.
 
 ```powershell
+pwsh -NoProfile -File .\tests\PackageGate.Tests.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Verify-Package.ps1
 ```
 

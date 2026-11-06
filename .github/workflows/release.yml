@@ -62,6 +62,10 @@ jobs:
         shell: pwsh
         run: ./scripts/Invoke-VulnerabilityAudit.ps1 -Solution ./KeelMatrix.AiToolContract.sln -ConfigFile ./NuGet.config
 
+      - name: Verify package gate control flow
+        shell: pwsh
+        run: ./tests/PackageGate.Tests.ps1
+
       - name: Run package gate
         shell: pwsh
         env:
