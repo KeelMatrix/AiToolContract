@@ -13,7 +13,7 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $temporaryRoot 'scripts') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $temporaryRoot 'build') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/Verify-Package.ps1') -Destination (Join-Path $temporaryRoot 'scripts')
-    foreach ($name in @('Invoke-NestedPwsh.ps1', 'Test-NestedPwshLaunch.ps1')) {
+    foreach ($name in @('Invoke-NestedPwsh.ps1', 'Test-NestedPwshLaunch.ps1', 'Test-SymbolMetadata.ps1')) {
         Copy-Item -LiteralPath (Join-Path $repoRoot "build/$name") -Destination (Join-Path $temporaryRoot 'build')
     }
 

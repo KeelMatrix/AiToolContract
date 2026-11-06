@@ -7,6 +7,7 @@ This file records consumer-facing changes to KeelMatrix.AiToolContract.
 - Resource limits are enforced consistently across capture, baseline parsing, comparison, and serialization, including nested schemas and supported JSON values.
 - Baseline parsing and serialization share a derived aggregate UTF-8 budget, including canonical escaping and complete multi-tool round trips.
 - Vulnerability auditing now rejects case-variant scanner properties and reports applicable findings from both top-level and transitive package collections.
+- Release symbols and assembly debug metadata use normalized source paths and exact-commit SourceLink mappings without developer checkout paths.
 
 ## [0.1.0-rc.1] - 2026-09-26
 

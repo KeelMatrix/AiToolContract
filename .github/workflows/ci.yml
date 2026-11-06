@@ -55,6 +55,10 @@ jobs:
       - name: Build
         run: dotnet build KeelMatrix.AiToolContract.sln --configuration Release --no-restore -p:AiToolContractAbstractionsVersion=${{ matrix.abstractions }}
 
+      - name: Verify symbol metadata and built source paths
+        shell: pwsh
+        run: ./tests/SymbolMetadata.Tests.ps1 -VerifyBuildOutput
+
       - name: Test
         run: dotnet test KeelMatrix.AiToolContract.sln --configuration Release --no-build --no-restore -p:AiToolContractAbstractionsVersion=${{ matrix.abstractions }}
 

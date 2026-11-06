@@ -1,6 +1,6 @@
 # Development and validation
 
-The repository pins the SDK in `global.json`, restore sources in `NuGet.config`, and package versions in `Directory.Packages.props`.
+The repository pins the SDK in `global.json`, restore sources in `NuGet.config`, and package versions in `Directory.Packages.props`. Package validation requires PowerShell 7 (`pwsh`).
 
 ## Focused loop
 
@@ -27,12 +27,15 @@ Run the repository-controlled gate from the repository root. It restores the sol
 
 ```powershell
 pwsh -NoProfile -File .\tests\PackageGate.Tests.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Verify-Package.ps1
+pwsh -NoProfile -File .\tests\SymbolMetadata.Tests.ps1 -VerifyBuildOutput
+pwsh -NoProfile -File .\scripts\Verify-Package.ps1
 ```
 
 The default gate fails closed with `MISSING_PACKAGE_ICON` when the repository-root `icon.png` is absent or invalid. The required path is resolved by the `PackageIcon` and pack item entries in `src/KeelMatrix.AiToolContract/KeelMatrix.AiToolContract.csproj`; no project-local icon copy is required.
 
 The optional `-AllowMissingIcon` switch is reserved for local pre-icon diagnostics and is not used by CI or release workflows. When the icon is present, the gate validates its 512x512 dimensions, metadata, package entry, and byte identity.
+
+`Directory.Build.props` enables source-path normalization for Release builds, including direct `dotnet pack`, local package validation, CI, and release workflows. Debug builds retain local source paths for debugging. The package gate reads both target frameworks' portable PDB documents and SourceLink records, requires the normalized `/_/` source root and exact repository commit, and checks the DLLs' CodeView paths. Developer checkout paths fail validation.
 
 ## Dependency matrix
 

@@ -1,3 +1,5 @@
+#requires -Version 7.0
+#requires -PSEdition Core
 param(
     [ValidateSet('Release')]
     [string] $Configuration = 'Release',
@@ -11,6 +13,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot 'build/Invoke-NestedPwsh.ps1')
 $launchGuard = Join-Path $repoRoot 'build/Test-NestedPwshLaunch.ps1'
 & $launchGuard
+. (Join-Path $repoRoot 'build/Test-SymbolMetadata.ps1')
 $project = Join-Path $repoRoot 'src\KeelMatrix.AiToolContract\KeelMatrix.AiToolContract.csproj'
 $solution = Join-Path $repoRoot 'KeelMatrix.AiToolContract.sln'
 $packageReadmePath = Join-Path $repoRoot 'src\KeelMatrix.AiToolContract\README.md'
@@ -96,29 +99,6 @@ function Get-Hash([byte[]] $bytes) {
     finally {
         $sha.Dispose()
     }
-}
-
-function Contains-Bytes([byte[]] $bytes, [byte[]] $needle) {
-    for ($offset = 0; $offset -le $bytes.Length - $needle.Length; $offset++) {
-        $match = $true
-        for ($index = 0; $index -lt $needle.Length; $index++) {
-            if ($bytes[$offset + $index] -ne $needle[$index]) {
-                $match = $false
-                break
-            }
-        }
-        if ($match) { return $true }
-    }
-    return $false
-}
-
-function Test-SourceLink($entry, [string] $entryName) {
-    $pdbBytes = Get-EntryBytes $entry
-    $commit = (& git -C $repoRoot rev-parse HEAD).Trim()
-    $repoMap = [System.Text.Encoding]::UTF8.GetBytes('raw.githubusercontent.com/KeelMatrix/AiToolContract/')
-    $commitBytes = [System.Text.Encoding]::UTF8.GetBytes($commit)
-    Require (Contains-Bytes $pdbBytes $repoMap) "SourceLink repository mapping was not found in '$entryName'."
-    Require (Contains-Bytes $pdbBytes $commitBytes) "SourceLink commit mapping was not found in '$entryName'."
 }
 
 function Assert-ExactEntries([string[]] $actual, [string[]] $expected, [string] $label) {
@@ -312,7 +292,11 @@ if ((Test-Path -LiteralPath $nupkgPath -PathType Leaf) -and (Test-Path -LiteralP
             $symbolEntry = $symbolsZip.GetEntry($entryName)
             Require ($null -ne $symbolEntry) "Symbol archive is missing '$entryName'."
             if ($null -ne $symbolEntry) {
-                Test-SourceLink $symbolEntry $entryName
+                try {
+                    $assemblyEntry = $packageZip.GetEntry($entryName.Replace('.pdb', '.dll'))
+                    Test-SymbolMetadata (Get-EntryBytes $symbolEntry) (Get-EntryBytes $assemblyEntry) ((& git -C $repoRoot rev-parse HEAD).Trim())
+                }
+                catch { Fail "Invalid symbol metadata in '$entryName': $($_.Exception.Message)" }
             }
         }
     }
