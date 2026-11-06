@@ -19,7 +19,7 @@ var breaking = AiToolContractVerifier.Verify(parsed, new AITool[] { changed });
 if (breaking.IsClean || breaking.Diff is null || breaking.Diff.Compatibility != AiToolCompatibility.Breaking || !breaking.Diff.Changes.Any(static change => change.Kind == AiToolChangeKind.RequiredParameterAdded))
     throw new InvalidOperationException("The package consumer did not report the required argument as breaking.");
 
-static AiToolContractBaseline ParseBaseline(string schema) => AiToolContractJson.Parse("{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"inputSchema\":" + schema + ",\"returnSchema\":null,\"requiresApproval\":false}]}");
+static AiToolContractBaseline ParseBaseline(string schema, string? output = null) => AiToolContractJson.Parse("{\"schemaVersion\":1,\"tools\":[{\"name\":\"tool\",\"description\":null,\"inputSchema\":" + schema + ",\"returnSchema\":" + (output ?? "null") + ",\"requiresApproval\":false}]}");
 static void Require(bool condition, string message)
 {
     if (!condition)
@@ -64,6 +64,27 @@ var unrelatedRejected = false;
 try { AiToolContractVerifier.Accept(newOutput, AiToolContractVerifier.Compare(oldOutput, oldOutput)); }
 catch (AiToolContractException) { unrelatedRejected = true; }
 Require(unrelatedRejected, "An unrelated comparison bypassed acceptance.");
+foreach (var composition in new[]
+{
+    ("{\"type\":\"object\",\"required\":[\"id\"]}", "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}", 2),
+    ("{\"type\":\"object\",\"required\":[\"id\",\"stable\"]}", "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"other\":{\"type\":\"string\"}},\"required\":[\"other\",\"stable\"]}", 4)
+})
+{
+    var previous = ParseBaseline("{}", composition.Item1);
+    var candidate = ParseBaseline("{}", composition.Item2);
+    var diff = AiToolContractVerifier.Compare(previous, candidate, new AiToolContractLimits { MaxChanges = composition.Item3 });
+    Require(diff.Changes.Count == composition.Item3 && diff.Compatibility == AiToolCompatibility.Breaking && !diff.Changes.Any(static change => change.Kind == AiToolChangeKind.Unsupported), "The packed consumer lost a required output component during declaration changes.");
+    Require(diff.Changes.Any(static change => change.Kind == AiToolChangeKind.ReturnSchemaBreaking && change.Path == "$.returnSchema.required"), "The packed consumer lost the required output guarantee.");
+    var rejected = false;
+    try { AiToolContractVerifier.Accept(candidate, diff); }
+    catch (AiToolContractException) { rejected = true; }
+    Require(rejected, "The packed consumer accepted a lost required output guarantee without review.");
+    Require(ReferenceEquals(candidate, AiToolContractVerifier.AcceptWithBreakingReview(candidate, diff)), "The packed consumer rejected a supported composition after review.");
+    var limitRejected = false;
+    try { AiToolContractVerifier.Compare(previous, candidate, new AiToolContractLimits { MaxChanges = composition.Item3 - 1 }); }
+    catch (AiToolContractException) { limitRejected = true; }
+    Require(limitRejected, "The packed consumer did not count independent declaration and required components.");
+}
 var deepBaseline = ParseBaseline("{\"properties\":{\"a\":{\"properties\":{\"b\":{}}}}}");
 var depthLimits = new AiToolContractLimits { MaxSchemaDepth = 3 };
 Require(AiToolContractVerifier.Compare(deepBaseline, AiToolContractJson.Parse(AiToolContractJson.Serialize(deepBaseline, depthLimits), depthLimits), depthLimits).IsClean, "Logical schema depth did not round trip.");

@@ -6,7 +6,7 @@ The subset is derived from probes of `AIFunctionFactory` with `Microsoft.Extensi
 
 Transition coverage checks the closed model and observed classifier output. Independent consumer-instance witnesses validate compatibility direction without using the production rule table. Composed changes exercise emitted directions for multiple member edits, required swaps, and nested schemas. The rule table in `SchemaTransitionRules` is keyed by every property of the closed `NormalizedSchema` model and by its supported transition directions; a missing rule produces an unsupported classification. The generator also exercises each rule at the root and at depth two in both schema roles.
 
-The narrowing/widening rules below describe inputs. Returns reverse that direction: widening loses an output guarantee and is breaking; narrowing strengthens a guarantee and is additive. Incomparable types remain breaking. Required-name swaps and property edits are decomposed by member. See [compatibility](COMPATIBILITY.md) for examples.
+The narrowing/widening rules below describe inputs. Returns reverse that direction: widening loses an output guarantee and is breaking; narrowing strengthens a guarantee and is additive. Incomparable types remain breaking. Required-name swaps and property edits are decomposed by member; declaration and required-membership changes remain independent, including undeclared required names. See [compatibility](COMPATIBILITY.md) for examples.
 
 ## Closed keyword surface
 

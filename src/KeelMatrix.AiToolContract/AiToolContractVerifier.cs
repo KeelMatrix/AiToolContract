@@ -203,19 +203,12 @@ public static class AiToolContractVerifier
     {
         foreach (var name in newSchema.Required.Except(oldSchema.Required, StringComparer.Ordinal))
         {
-            // A property addition/removal already reports the structural change.
-            // Keep the required-set transition for declared properties that exist
-            // on both sides and for valid undeclared required names.
-            if (oldSchema.Properties.ContainsKey(name) == newSchema.Properties.ContainsKey(name))
-                Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.RequiredParameterAdded : AiToolChangeKind.ReturnSchemaAdditive, input ? AiToolCompatibility.Breaking : AiToolCompatibility.Additive, toolName, path + ".required", "Property '" + name + "' became required."));
+            Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.RequiredParameterAdded : AiToolChangeKind.ReturnSchemaAdditive, input ? AiToolCompatibility.Breaking : AiToolCompatibility.Additive, toolName, path + ".required", "Property '" + name + "' became required."));
         }
         foreach (var name in oldSchema.Required.Except(newSchema.Required, StringComparer.Ordinal))
         {
-            if (oldSchema.Properties.ContainsKey(name) == newSchema.Properties.ContainsKey(name))
-            {
-                var kind = input ? AiToolChangeKind.OptionalParameterAdded : AiToolChangeKind.ReturnSchemaBreaking;
-                Add(changes, limits, new AiToolChange(kind, input ? AiToolCompatibility.Additive : AiToolCompatibility.Breaking, toolName, path + ".required", input ? "Parameter '" + name + "' is no longer required." : "Return property '" + name + "' is no longer required."));
-            }
+            var kind = input ? AiToolChangeKind.OptionalParameterAdded : AiToolChangeKind.ReturnSchemaBreaking;
+            Add(changes, limits, new AiToolChange(kind, input ? AiToolCompatibility.Additive : AiToolCompatibility.Breaking, toolName, path + ".required", input ? "Parameter '" + name + "' is no longer required." : "Return property '" + name + "' is no longer required."));
         }
     }
 

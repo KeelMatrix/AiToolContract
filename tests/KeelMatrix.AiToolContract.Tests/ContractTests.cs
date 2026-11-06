@@ -762,7 +762,7 @@ public sealed class ContractTests
                 return direction switch
                 {
                     SchemaTransitionDirection.OptionalPropertyAdded => ("{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"note\":{\"type\":\"string\"}}}"),
-                    SchemaTransitionDirection.RequiredPropertyAdded => ("{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}"),
+                    SchemaTransitionDirection.RequiredPropertyAdded => ("{\"type\":\"object\",\"required\":[\"query\"]}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}"),
                     _ => ("{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", "{\"type\":\"object\"}")
                 };
             if (propertyName == nameof(NormalizedSchema.Required))

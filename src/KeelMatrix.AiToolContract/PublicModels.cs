@@ -90,7 +90,7 @@ public sealed class AiToolContractLimits
     /// <summary>Maximum array items in one schema array.</summary>
     public int MaxArrayItems { get; set; } = 10_000;
 
-    /// <summary>Maximum reported changes in one comparison.</summary>
+    /// <summary>Maximum reported components in one comparison; declaration and required-membership changes count separately.</summary>
     public int MaxChanges { get; set; } = 5_000;
 
     internal void Validate()

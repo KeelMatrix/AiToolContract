@@ -12,7 +12,7 @@ dotnet build .\smoke\PackageConsumer\PackageConsumer.csproj -c Release --no-rest
 dotnet run --project .\smoke\PackageConsumer\PackageConsumer.csproj -c Release --no-restore --no-build
 ```
 
-The program captures a real `AIFunction`, writes and parses the baseline explicitly, verifies clean, then adds a required argument and requires a `Breaking` diff. It does not call a provider or require an API key.
+The program captures a real `AIFunction`, writes and parses the baseline explicitly, verifies clean, then adds a required argument and requires a `Breaking` diff. It also checks required output losses and swaps during declaration changes, both acceptance methods, and component-count limits. It does not call a provider or require an API key.
 
 The repository script also validates the exact archive with the same two target surfaces used by CI and release: it runs this net8.0 consumer on Windows, Linux, and macOS in CI, and compiles `PackageConsumer.NetStandard` for netstandard2.0. Invoke it with:
 
