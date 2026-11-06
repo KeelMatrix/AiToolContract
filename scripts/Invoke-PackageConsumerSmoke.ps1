@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $Version,
 
-    [string] $AbstractionsVersion = '10.10.0'
+    [string] $AbstractionsVersion = '10.11.0'
 )
 
 $ErrorActionPreference = 'Stop'

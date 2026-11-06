@@ -16,10 +16,13 @@ dotnet build .\KeelMatrix.AiToolContract.sln -c Release --no-restore
 dotnet test .\KeelMatrix.AiToolContract.sln -c Release --no-restore
 dotnet format .\KeelMatrix.AiToolContract.sln --verify-no-changes --no-restore
 dotnet pack .\src\KeelMatrix.AiToolContract\KeelMatrix.AiToolContract.csproj -c Release --no-restore -o .\artifacts
+pwsh -NoProfile -File .\scripts\Test-IdeArtifactIgnores.ps1
+pwsh -NoProfile -File .\tests\IdeArtifactIgnores.Tests.ps1
+pwsh -NoProfile -File .\tests\VulnerabilityAudit.Tests.ps1
 pwsh .\scripts\Invoke-VulnerabilityAudit.ps1 -Solution .\KeelMatrix.AiToolContract.sln -ConfigFile .\NuGet.config
 ```
 
-The vulnerability audit validates the scanner's JSON structure before walking findings. It requires the scanner's canonical, case-sensitive property names; casing variants are malformed and fail closed. A missing, wrong-type, truncated, or structurally malformed top-level, project, framework, package, or vulnerability node fails closed instead of being treated as a clean audit. Any applicable finding in either top-level or transitive package collections produces a non-zero result.
+The vulnerability audit verifies scan mode, nonempty vulnerability sources, the complete solution project set, and absence of scanner problems, including missing-data warnings. Clean NuGet reports may omit framework details for projects with no findings. Duplicate or case-ambiguous members are rejected before object conversion. The vulnerability audit validates the scanner's JSON structure before walking findings. It requires the scanner's canonical, case-sensitive property names; casing variants are malformed and fail closed. A missing, wrong-type, truncated, or structurally malformed top-level, project, framework, package, or vulnerability node fails closed instead of being treated as a clean audit. Any applicable finding in either top-level or transitive package collections produces a non-zero result.
 
 ## Package and archive gate
 
@@ -43,8 +46,12 @@ Build the minimum supported abstraction package and the current tested package w
 
 ```powershell
 dotnet build .\src\KeelMatrix.AiToolContract\KeelMatrix.AiToolContract.csproj -c Release -p:AiToolContractAbstractionsVersion=10.0.0
-dotnet build .\src\KeelMatrix.AiToolContract\KeelMatrix.AiToolContract.csproj -c Release -p:AiToolContractAbstractionsVersion=10.10.1
+dotnet build .\src\KeelMatrix.AiToolContract\KeelMatrix.AiToolContract.csproj -c Release -p:AiToolContractAbstractionsVersion=10.11.0
 ```
+
+Both endpoints run the semantic regression suite, compile both shipping TFMs, and restore isolated package consumers.
+
+To run the same tests against the netstandard2.0 library asset on the net8.0 test host, add `-p:AiToolContractTestLibraryFramework=netstandard2.0` to the test-project command. CI does this at both dependency endpoints on each supported operating system.
 
 The shipping assembly is the only project with Public API baselines. The package gate is the canonical local archive inspection command.
 
@@ -65,7 +72,7 @@ dotnet build .\smoke\PackageConsumer.NetStandard\PackageConsumer.NetStandard.csp
 
 The consumer captures a real `AIFunction`, round-trips a baseline, verifies clean, adds a required argument, and observes a `Breaking` result.
 
-The CI/release-equivalent command is `pwsh .\scripts\Invoke-PackageConsumerSmoke.ps1 -PackagePath <exact-nupkg> -Version <package-version> -AbstractionsVersion 10.10.1`; it runs the net8.0 consumer and compiles a separate netstandard2.0 consumer against that exact archive.
+The CI/release-equivalent command is `pwsh .\scripts\Invoke-PackageConsumerSmoke.ps1 -PackagePath <exact-nupkg> -Version <package-version> -AbstractionsVersion 10.11.0`; it runs the net8.0 consumer and compiles a separate netstandard2.0 consumer against that exact archive.
 
 Clean up the isolated feed and package cache after the smoke run:
 

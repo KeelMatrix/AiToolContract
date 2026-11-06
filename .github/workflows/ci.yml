@@ -27,15 +27,15 @@ jobs:
           - os: ubuntu-latest
             abstractions: 10.0.0
           - os: ubuntu-latest
-            abstractions: 10.10.1
+            abstractions: 10.11.0
           - os: windows-latest
             abstractions: 10.0.0
           - os: windows-latest
-            abstractions: 10.10.1
+            abstractions: 10.11.0
           - os: macos-latest
             abstractions: 10.0.0
           - os: macos-latest
-            abstractions: 10.10.1
+            abstractions: 10.11.0
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -61,6 +61,9 @@ jobs:
 
       - name: Test
         run: dotnet test KeelMatrix.AiToolContract.sln --configuration Release --no-build --no-restore -p:AiToolContractAbstractionsVersion=${{ matrix.abstractions }}
+
+      - name: Test the netstandard2.0 library asset
+        run: dotnet test tests/KeelMatrix.AiToolContract.Tests/KeelMatrix.AiToolContract.Tests.csproj --configuration Release --no-restore -p:AiToolContractAbstractionsVersion=${{ matrix.abstractions }} -p:AiToolContractTestLibraryFramework=netstandard2.0
 
   quality:
     name: Format and dependency audit
@@ -92,6 +95,12 @@ jobs:
       - name: Verify release contract helper
         shell: pwsh
         run: ./tests/Validate-Release.Tests.ps1
+
+      - name: Verify IDE artifact ignore rules and negative controls
+        shell: pwsh
+        run: |
+          ./scripts/Test-IdeArtifactIgnores.ps1
+          ./tests/IdeArtifactIgnores.Tests.ps1
 
       - name: Verify vulnerability audit contract and casing policy
         shell: pwsh
@@ -156,7 +165,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          ./scripts/Invoke-PackageConsumerSmoke.ps1 `
-            -PackagePath (Join-Path $env:GITHUB_WORKSPACE 'artifacts/package-gate/KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg') `
-            -Version '0.1.0-rc.1' `
-            -AbstractionsVersion '10.10.1'
+          foreach ($abstractionsVersion in @('10.0.0', '10.11.0')) {
+            ./scripts/Invoke-PackageConsumerSmoke.ps1 `
+              -PackagePath (Join-Path $env:GITHUB_WORKSPACE 'artifacts/package-gate/KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg') `
+              -Version '0.1.0-rc.1' `
+              -AbstractionsVersion $abstractionsVersion
+            if ($LASTEXITCODE -ne 0) { throw 'Package consumer verification failed.' }
+          }

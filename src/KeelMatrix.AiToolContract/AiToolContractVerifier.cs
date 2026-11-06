@@ -66,7 +66,7 @@ public static class AiToolContractVerifier
 
         if (changes.Count > 0)
             diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.CompatibilityDifference, "The candidate differs from the baseline; no baseline was updated automatically."));
-        return new AiToolContractDiff(changes, diagnostics);
+        return new AiToolContractDiff(baseline, candidate, changes, diagnostics);
     }
 
     /// <summary>Captures live tools and compares them with a baseline.</summary>
@@ -80,7 +80,7 @@ public static class AiToolContractVerifier
 
     /// <summary>
     /// Explicitly accepts a candidate only when it has no breaking or unsupported differences.
-    /// This method never writes to disk.
+    /// The comparison must refer to this exact immutable candidate instance. This method never writes to disk.
     /// </summary>
     public static AiToolContractBaseline Accept(AiToolContractBaseline candidate, AiToolContractDiff diff)
     {
@@ -88,6 +88,8 @@ public static class AiToolContractVerifier
             throw new ArgumentNullException(nameof(candidate));
         if (diff is null)
             throw new ArgumentNullException(nameof(diff));
+        if (!ReferenceEquals(candidate, diff.Candidate))
+            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CompatibilityDifference, "The comparison belongs to a different candidate. Compare the intended baseline and candidate before acceptance."));
         if (diff.HasUnsupported)
             throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, "The candidate contains an unsupported difference and cannot be accepted automatically."));
         if (diff.HasBreaking)
@@ -95,13 +97,15 @@ public static class AiToolContractVerifier
         return candidate;
     }
 
-    /// <summary>Explicitly accepts a candidate after the caller has completed breaking-change review.</summary>
+    /// <summary>Explicitly accepts the exact candidate instance in the comparison after the caller has completed breaking-change review.</summary>
     public static AiToolContractBaseline AcceptWithBreakingReview(AiToolContractBaseline candidate, AiToolContractDiff diff)
     {
         if (candidate is null)
             throw new ArgumentNullException(nameof(candidate));
         if (diff is null)
             throw new ArgumentNullException(nameof(diff));
+        if (!ReferenceEquals(candidate, diff.Candidate))
+            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CompatibilityDifference, "The comparison belongs to a different candidate. Compare the intended baseline and candidate before acceptance."));
         if (diff.HasUnsupported)
             throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, "The candidate contains an unsupported difference and cannot be accepted."));
         return candidate;
@@ -165,11 +169,11 @@ public static class AiToolContractVerifier
             if (!newSchema.Properties.TryGetValue(oldProperty.Key, out var newProperty))
             {
                 var kind = input ? AiToolChangeKind.ParameterRemoved : AiToolChangeKind.ReturnSchemaBreaking;
-                Add(changes, limits, new AiToolChange(kind, AiToolCompatibility.Breaking, toolName, path + ".properties." + oldProperty.Key, "Property '" + oldProperty.Key + "' was removed."));
+                Add(changes, limits, new AiToolChange(kind, AiToolCompatibility.Breaking, toolName, SchemaPath.Property(path + ".properties", oldProperty.Key), "Property '" + oldProperty.Key + "' was removed."));
             }
             else
             {
-                CompareSchema(oldProperty.Value, newProperty, toolName, path + ".properties." + oldProperty.Key, input, changes, diagnostics, limits, unsupportedKeys, nodeIdentity.Property(oldProperty.Key));
+                CompareSchema(oldProperty.Value, newProperty, toolName, SchemaPath.Property(path + ".properties", oldProperty.Key), input, changes, diagnostics, limits, unsupportedKeys, nodeIdentity.Property(oldProperty.Key));
             }
         }
 
@@ -180,17 +184,17 @@ public static class AiToolContractVerifier
             var required = newSchema.Required.Contains(newProperty.Key, StringComparer.Ordinal);
             if (!input)
             {
-                var kind = required ? AiToolChangeKind.ReturnSchemaBreaking : AiToolChangeKind.ReturnSchemaAdditive;
-                var compatibility = required ? AiToolCompatibility.Breaking : AiToolCompatibility.Additive;
-                Add(changes, limits, new AiToolChange(kind, compatibility, toolName, path + ".properties." + newProperty.Key, "Return property '" + newProperty.Key + "' was added."));
+                var kind = AiToolChangeKind.ReturnSchemaAdditive;
+                var compatibility = AiToolCompatibility.Additive;
+                Add(changes, limits, new AiToolChange(kind, compatibility, toolName, SchemaPath.Property(path + ".properties", newProperty.Key), "Return property '" + newProperty.Key + "' was added."));
             }
             else if (required)
             {
-                Add(changes, limits, new AiToolChange(AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, toolName, path + ".properties." + newProperty.Key, "Required parameter '" + newProperty.Key + "' was added."));
+                Add(changes, limits, new AiToolChange(AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, toolName, SchemaPath.Property(path + ".properties", newProperty.Key), "Required parameter '" + newProperty.Key + "' was added."));
             }
             else
             {
-                Add(changes, limits, new AiToolChange(AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, toolName, path + ".properties." + newProperty.Key, "Optional parameter '" + newProperty.Key + "' was added."));
+                Add(changes, limits, new AiToolChange(AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, toolName, SchemaPath.Property(path + ".properties", newProperty.Key), "Optional parameter '" + newProperty.Key + "' was added."));
             }
         }
     }
@@ -203,14 +207,14 @@ public static class AiToolContractVerifier
             // Keep the required-set transition for declared properties that exist
             // on both sides and for valid undeclared required names.
             if (oldSchema.Properties.ContainsKey(name) == newSchema.Properties.ContainsKey(name))
-                Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.RequiredParameterAdded : AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, toolName, path + ".required", "Property '" + name + "' became required."));
+                Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.RequiredParameterAdded : AiToolChangeKind.ReturnSchemaAdditive, input ? AiToolCompatibility.Breaking : AiToolCompatibility.Additive, toolName, path + ".required", "Property '" + name + "' became required."));
         }
         foreach (var name in oldSchema.Required.Except(newSchema.Required, StringComparer.Ordinal))
         {
             if (oldSchema.Properties.ContainsKey(name) == newSchema.Properties.ContainsKey(name))
             {
-                var kind = input ? AiToolChangeKind.OptionalParameterAdded : AiToolChangeKind.ReturnSchemaAdditive;
-                Add(changes, limits, new AiToolChange(kind, AiToolCompatibility.Additive, toolName, path + ".required", input ? "Parameter '" + name + "' is no longer required." : "Return property '" + name + "' is no longer required."));
+                var kind = input ? AiToolChangeKind.OptionalParameterAdded : AiToolChangeKind.ReturnSchemaBreaking;
+                Add(changes, limits, new AiToolChange(kind, input ? AiToolCompatibility.Additive : AiToolCompatibility.Breaking, toolName, path + ".required", input ? "Parameter '" + name + "' is no longer required." : "Return property '" + name + "' is no longer required."));
             }
         }
     }
@@ -236,14 +240,15 @@ public static class AiToolContractVerifier
         var newTypes = newSchema.Types;
         var narrowed = oldTypes.Count == 0
             ? newTypes.Count > 0
-            : newTypes.Count > 0 && IsSubset(newTypes, oldTypes) && !IsSubset(oldTypes, newTypes);
+            : newTypes.Count > 0 && SchemaTransitionRules.TypeSubset(newTypes, oldTypes) && !SchemaTransitionRules.TypeSubset(oldTypes, newTypes);
         var widened = newTypes.Count == 0
             ? oldTypes.Count > 0
-            : oldTypes.Count > 0 && IsSubset(oldTypes, newTypes) && !IsSubset(newTypes, oldTypes);
-        var compatibility = narrowed ? AiToolCompatibility.Breaking : widened ? AiToolCompatibility.Additive : AiToolCompatibility.Breaking;
-        var kind = input
-            ? AiToolChangeKind.TypeChanged
-            : narrowed || !widened ? AiToolChangeKind.ReturnSchemaBreaking : AiToolChangeKind.ReturnSchemaAdditive;
+            : oldTypes.Count > 0 && SchemaTransitionRules.TypeSubset(oldTypes, newTypes) && !SchemaTransitionRules.TypeSubset(newTypes, oldTypes);
+        if (!narrowed && !widened && SchemaTransitionRules.TypeSubset(oldTypes, newTypes) && SchemaTransitionRules.TypeSubset(newTypes, oldTypes))
+            return;
+        var breaking = input ? !widened : !narrowed;
+        var compatibility = breaking ? AiToolCompatibility.Breaking : AiToolCompatibility.Additive;
+        var kind = input ? AiToolChangeKind.TypeChanged : breaking ? AiToolChangeKind.ReturnSchemaBreaking : AiToolChangeKind.ReturnSchemaAdditive;
         Add(changes, limits, new AiToolChange(kind, compatibility, toolName, path + ".type", "Schema type " + (narrowed ? "narrowed" : widened ? "widened" : "changed") + "."));
     }
 
@@ -261,9 +266,9 @@ public static class AiToolContractVerifier
             AddUnsupported(changes, diagnostics, limits, unsupportedKeys, toolName, path + ".enum", "Enum values changed in both directions and cannot be classified safely.", CreateUnsupportedKey(toolName, nodeIdentity, nameof(NormalizedSchema.EnumValues), FindDirection(transitions, nameof(NormalizedSchema.EnumValues))));
         }
         else if (narrowed)
-            Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.EnumNarrowed : AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, toolName, path + ".enum", "Enum values were narrowed."));
+            Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.EnumNarrowed : AiToolChangeKind.ReturnSchemaAdditive, input ? AiToolCompatibility.Breaking : AiToolCompatibility.Additive, toolName, path + ".enum", "Enum values were narrowed."));
         else
-            Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.EnumExpanded : AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, toolName, path + ".enum", "Enum values were expanded."));
+            Add(changes, limits, new AiToolChange(input ? AiToolChangeKind.EnumExpanded : AiToolChangeKind.ReturnSchemaBreaking, input ? AiToolCompatibility.Additive : AiToolCompatibility.Breaking, toolName, path + ".enum", "Enum values were expanded."));
     }
 
     private static void CompareConstraints(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
@@ -300,7 +305,10 @@ public static class AiToolContractVerifier
         var kind = narrowed ? AiToolChangeKind.ConstraintNarrowed : AiToolChangeKind.ConstraintExpanded;
         var compatibility = narrowed ? AiToolCompatibility.Breaking : AiToolCompatibility.Additive;
         if (!input)
-            kind = narrowed ? AiToolChangeKind.ReturnSchemaBreaking : AiToolChangeKind.ReturnSchemaAdditive;
+        {
+            kind = narrowed ? AiToolChangeKind.ReturnSchemaAdditive : AiToolChangeKind.ReturnSchemaBreaking;
+            compatibility = narrowed ? AiToolCompatibility.Additive : AiToolCompatibility.Breaking;
+        }
         Add(changes, limits, new AiToolChange(kind, compatibility, toolName, path + "." + name, "Constraint changed."));
     }
 

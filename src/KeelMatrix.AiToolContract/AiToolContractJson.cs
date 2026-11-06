@@ -32,19 +32,19 @@ public static class AiToolContractJson
             throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedBaselineVersion, "Baseline schema version " + baseline.SchemaVersion + " is not supported."));
         ValidateBaselineLimits(baseline, effectiveLimits);
 
-        return SerializeCore(baseline);
+        return SerializeCore(baseline, effectiveLimits.GetBaselineByteLimit());
     }
 
     internal static void ValidateBaselineLimits(AiToolContractBaseline baseline, AiToolContractLimits limits)
     {
         baseline.ValidateLimits(limits);
-        EnsureBaselineByteLimit(SerializeCore(baseline), limits);
+        SerializeCore(baseline, limits.GetBaselineByteLimit(), countOnly: true);
     }
 
-    private static string SerializeCore(AiToolContractBaseline baseline)
+    private static string SerializeCore(AiToolContractBaseline baseline, long limit, bool countOnly = false)
     {
         var tools = baseline.Tools.OrderBy(static tool => tool.Name, StringComparer.Ordinal).ToList();
-        var builder = new StringBuilder();
+        var builder = new CanonicalJsonWriter(limit, countOnly);
         builder.Append("{\"schemaVersion\":1,\"tools\":[");
         for (var index = 0; index < tools.Count; index++)
         {
@@ -52,13 +52,16 @@ public static class AiToolContractJson
                 builder.Append(',');
             var tool = tools[index];
             builder.Append("{\"name\":");
-            builder.Append(JsonSerializer.Serialize(tool.Name));
+            builder.AppendString(tool.Name);
             builder.Append(",\"description\":");
-            builder.Append(tool.Description is null ? "null" : JsonSerializer.Serialize(tool.Description));
+            if (tool.Description is null)
+                builder.Append("null");
+            else
+                builder.AppendString(tool.Description);
             builder.Append(",\"inputSchema\":");
-            builder.Append(tool.InputSchema.ToCanonicalJson());
+            builder.Append(tool.InputSchemaJson);
             builder.Append(",\"returnSchema\":");
-            builder.Append(tool.ReturnSchema is null ? "null" : tool.ReturnSchema.ToCanonicalJson());
+            builder.Append(tool.ReturnSchema is null ? "null" : tool.ReturnSchemaJson!);
             builder.Append(",\"requiresApproval\":");
             builder.Append(tool.RequiresApproval ? "true" : "false");
             builder.Append('}');
@@ -114,7 +117,7 @@ public static class AiToolContractJson
                 if (returnSchemaElement.ValueKind != JsonValueKind.Null)
                 {
                     RequireObject(returnSchemaElement, "Tool '" + name + "' returnSchema must be an object or null.");
-                    returnSchema = SchemaNormalizer.Normalize(returnSchemaElement, effectiveLimits, AiToolDiagnosticKind.MalformedBaseline);
+                    returnSchema = SchemaNormalizer.Normalize(returnSchemaElement, effectiveLimits, AiToolDiagnosticKind.MalformedBaseline, "$.returnSchema");
                 }
 
                 var approval = toolElement.GetProperty("requiresApproval");

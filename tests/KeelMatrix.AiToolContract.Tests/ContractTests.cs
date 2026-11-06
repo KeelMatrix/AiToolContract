@@ -382,24 +382,12 @@ public sealed class ContractTests
         var newBaseline = testCase.ReturnSchema ? Capture("{\"type\":\"object\"}", schemas.NewSchema) : Capture(schemas.NewSchema);
         var diff = AiToolContractVerifier.Compare(oldBaseline, newBaseline);
         var expected = testCase.ReturnSchema ? testCase.Rule.Return : testCase.Rule.Input;
-        var mixedRequiredReplacement = testCase.Rule.PropertyName == nameof(NormalizedSchema.Required) && testCase.Rule.Direction == SchemaTransitionDirection.Changed;
-
         Assert.False(diff.IsClean, testCase.Name);
-        Assert.Equal(mixedRequiredReplacement ? AiToolCompatibility.Breaking : expected.Compatibility, diff.Compatibility);
-        Assert.Equal(mixedRequiredReplacement ? 3 : 1, diff.Changes.Count);
+        Assert.Equal(expected.Compatibility, diff.Compatibility);
+        Assert.Single(diff.Changes);
         Assert.Equal(expected.Kind, diff.Changes[0].Kind);
         Assert.Equal(expected.Compatibility, diff.Changes[0].Compatibility);
         Assert.Equal(testCase.ExpectedPath, diff.Changes[0].Path);
-        if (mixedRequiredReplacement)
-        {
-            var requiredKind = testCase.ReturnSchema ? AiToolChangeKind.ReturnSchemaBreaking : AiToolChangeKind.RequiredParameterAdded;
-            var optionalKind = testCase.ReturnSchema ? AiToolChangeKind.ReturnSchemaAdditive : AiToolChangeKind.OptionalParameterAdded;
-            Assert.Contains(diff.Changes, change => change.Kind == requiredKind && change.Compatibility == AiToolCompatibility.Breaking);
-            Assert.Contains(diff.Changes, change => change.Kind == optionalKind && change.Compatibility == AiToolCompatibility.Additive);
-            Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Accept(newBaseline, diff));
-            Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.AcceptWithBreakingReview(newBaseline, diff));
-            return;
-        }
         if (expected.Unsupported)
         {
             AssertUnsupported(diff);
@@ -459,8 +447,8 @@ public sealed class ContractTests
         {
             yield return new object[] { new RestoredTransitionCase("required-undeclared-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"required\":[\"ghost\"]}", false, AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, "$.required") };
             yield return new object[] { new RestoredTransitionCase("required-undeclared-removed", "{\"type\":\"object\",\"required\":[\"ghost\"]}", "{\"type\":\"object\"}", false, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, "$.required") };
-            yield return new object[] { new RestoredTransitionCase("return-required-undeclared-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"required\":[\"ghost\"]}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, "$.required") };
-            yield return new object[] { new RestoredTransitionCase("return-required-undeclared-removed", "{\"type\":\"object\",\"required\":[\"ghost\"]}", "{\"type\":\"object\"}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, "$.required") };
+            yield return new object[] { new RestoredTransitionCase("return-required-undeclared-added", "{\"type\":\"object\"}", "{\"type\":\"object\",\"required\":[\"ghost\"]}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, "$.required") };
+            yield return new object[] { new RestoredTransitionCase("return-required-undeclared-removed", "{\"type\":\"object\",\"required\":[\"ghost\"]}", "{\"type\":\"object\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, "$.required") };
 
             yield return new object[] { new RestoredTransitionCase("type-primitive-to-object", "{\"type\":\"string\"}", "{\"type\":\"object\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, "$.type") };
             yield return new object[] { new RestoredTransitionCase("type-object-to-array", "{\"type\":\"object\"}", "{\"type\":\"array\"}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, "$.type") };
@@ -468,7 +456,7 @@ public sealed class ContractTests
             yield return new object[] { new RestoredTransitionCase("return-type-object-to-array", "{\"type\":\"object\"}", "{\"type\":\"array\"}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, "$.type") };
 
             yield return new object[] { new RestoredTransitionCase("nested-items-union-widened", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\",\"items\":{\"type\":[\"string\",\"null\"]}}", false, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, "$.items.type") };
-            yield return new object[] { new RestoredTransitionCase("return-nested-items-union-widened", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\",\"items\":{\"type\":[\"string\",\"null\"]}}", true, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, "$.items.type") };
+            yield return new object[] { new RestoredTransitionCase("return-nested-items-union-widened", "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}", "{\"type\":\"array\",\"items\":{\"type\":[\"string\",\"null\"]}}", true, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking, "$.items.type") };
         }
     }
 
@@ -517,7 +505,7 @@ public sealed class ContractTests
     }
 
     [Fact]
-    public void MixedRequiredReplacementReportsUnsupportedAndBothSupportedComponents()
+    public void MixedRequiredReplacementReportsBothSupportedComponents()
     {
         var baseline = Capture("{\"type\":\"object\",\"properties\":{\"first\":{\"type\":\"string\"},\"second\":{\"type\":\"string\"}},\"required\":[\"first\"]}");
         var candidate = Capture("{\"type\":\"object\",\"properties\":{\"first\":{\"type\":\"string\"},\"second\":{\"type\":\"string\"}},\"required\":[\"second\"]}");
@@ -526,15 +514,9 @@ public sealed class ContractTests
 
         Assert.False(diff.IsClean);
         Assert.Equal(AiToolCompatibility.Breaking, diff.Compatibility);
-        Assert.Equal(3, diff.Changes.Count);
+        Assert.Equal(2, diff.Changes.Count);
         Assert.Collection(
             diff.Changes,
-            change =>
-            {
-                Assert.Equal(AiToolChangeKind.Unsupported, change.Kind);
-                Assert.Equal(AiToolCompatibility.Risky, change.Compatibility);
-                Assert.Equal("$.required", change.Path);
-            },
             change =>
             {
                 Assert.Equal(AiToolChangeKind.RequiredParameterAdded, change.Kind);
@@ -548,8 +530,8 @@ public sealed class ContractTests
                 Assert.Equal("$.required", change.Path);
             });
 
-        var withinLimit = AiToolContractVerifier.Compare(baseline, candidate, new AiToolContractLimits { MaxChanges = 3 });
-        Assert.Equal(3, withinLimit.Changes.Count);
+        var withinLimit = AiToolContractVerifier.Compare(baseline, candidate, new AiToolContractLimits { MaxChanges = 2 });
+        Assert.Equal(2, withinLimit.Changes.Count);
         Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Compare(baseline, candidate, new AiToolContractLimits { MaxChanges = 1 }));
     }
 
@@ -563,8 +545,8 @@ public sealed class ContractTests
 
         Assert.Equal(2, diff.Changes.Count);
         Assert.All(diff.Changes, static change => Assert.Equal(AiToolChangeKind.Unsupported, change.Kind));
-        Assert.Contains(diff.Changes, static change => change.Path == "$.properties.Items.items");
-        Assert.Contains(diff.Changes, static change => change.Path == "$.properties.items.items");
+        Assert.Contains(diff.Changes, static change => change.Path == "$.properties[\"Items\"].items");
+        Assert.Contains(diff.Changes, static change => change.Path == "$.properties[\"items\"].items");
         Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Compare(baseline, candidate, new AiToolContractLimits { MaxChanges = 1 }));
     }
 
@@ -596,7 +578,7 @@ public sealed class ContractTests
 
         Assert.Single(diff.Changes);
         Assert.Equal(AiToolChangeKind.Unsupported, diff.Changes[0].Kind);
-        Assert.Equal("$.properties." + propertyName + ".items", diff.Changes[0].Path);
+        Assert.Equal("$.properties[" + JsonSerializer.Serialize(propertyName) + "].items", diff.Changes[0].Path);
     }
 
     [Fact]
@@ -739,7 +721,7 @@ public sealed class ContractTests
         {
             var path = returnSchema ? "$.returnSchema" : "$";
             for (var level = depth - 1; level >= 0; level--)
-                path += ".properties.nested" + level;
+                path += ".properties[\"nested" + level + "\"]";
 
             var propertyPath = rule.PropertyName switch
             {
@@ -751,7 +733,7 @@ public sealed class ContractTests
                 nameof(NormalizedSchema.Required) => ".required",
                 nameof(NormalizedSchema.EnumValues) => ".enum",
                 nameof(NormalizedSchema.Items) => ".items",
-                nameof(NormalizedSchema.Properties) => rule.Direction == SchemaTransitionDirection.Removed ? ".properties.result" : rule.Direction == SchemaTransitionDirection.RequiredPropertyAdded ? ".properties.query" : ".properties.note",
+                nameof(NormalizedSchema.Properties) => rule.Direction == SchemaTransitionDirection.Removed ? ".properties[\"result\"]" : rule.Direction == SchemaTransitionDirection.RequiredPropertyAdded ? ".properties[\"query\"]" : ".properties[\"note\"]",
                 _ => "." + char.ToLowerInvariant(rule.PropertyName[0]) + rule.PropertyName.Substring(1)
             };
             return path + propertyPath;

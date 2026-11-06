@@ -4,11 +4,6 @@ This file records consumer-facing changes to KeelMatrix.AiToolContract.
 
 ## [Unreleased]
 
-- Resource limits are enforced consistently across capture, baseline parsing, comparison, and serialization, including nested schemas and supported JSON values.
-- Baseline parsing and serialization share a derived aggregate UTF-8 budget, including canonical escaping and complete multi-tool round trips.
-- Vulnerability auditing now rejects case-variant scanner properties and reports applicable findings from both top-level and transitive package collections.
-- Release symbols and assembly debug metadata use normalized source paths and exact-commit SourceLink mappings without developer checkout paths.
-
 ## [0.1.0-rc.1] - 2026-09-26
 
 ### Added
@@ -18,3 +13,5 @@ This file records consumer-facing changes to KeelMatrix.AiToolContract.
 - Offline package-consumer workflow using the real Microsoft.Extensions.AI abstractions without model, provider, API-key, or network access.
 - A closed normalized schema model for capture, baseline parsing, and comparison, with explicit review results for unsupported semantics.
 - Compatibility classifications for enum, required-set, and type-union transitions in input and return schemas, together with validated metadata such as descriptions, defaults, formats, and URI-reference values.
+- Input compatibility and output-guarantee classifications, compositional member changes, and acceptance bound to the compared candidate.
+- Escaped diagnostic paths and bounded canonical output, including nested enum/default values and tool metadata.

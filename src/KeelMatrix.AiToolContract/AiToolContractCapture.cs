@@ -51,7 +51,7 @@ public static class AiToolContractCapture
                 {
                     var inputSchema = SchemaNormalizer.Normalize(declaration.JsonSchema, effectiveLimits);
                     var returnSchema = declaration.ReturnJsonSchema is JsonElement returnElement
-                        ? SchemaNormalizer.Normalize(returnElement, effectiveLimits)
+                        ? SchemaNormalizer.Normalize(returnElement, effectiveLimits, path: "$.returnSchema")
                         : null;
                     var description = declaration.Description;
                     var requiresApproval = IsApprovalRequired(declaration);

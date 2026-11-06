@@ -16,8 +16,8 @@ The verifier compares contracts by tool identity. It does not infer renames: a r
 | Enum expanded | Additive | `new, open` becomes `new, open, closed`. |
 | Constraint narrowed | Breaking | `minimum: 1` becomes `minimum: 10`. |
 | Constraint widened | Additive | `maximum: 100` becomes `maximum: 1000`. |
-| Return-schema breaking | Breaking | A return property is removed or its type narrows. |
-| Return-schema additive | Additive | An optional return property is added. |
+| Return-schema breaking | Breaking | An output guarantee is lost: a required property becomes optional, a type widens to include null, an enum expands, or a bound relaxes. |
+| Return-schema additive | Additive | An output guarantee is strengthened: a property is added, becomes required, or has a narrower type, enum, or bound. |
 | Description changed | Risky | “Search orders” becomes “Search invoices”; model selection behavior may change. |
 | Approval/safety metadata changed | Risky or Breaking | An explicit approval-required wrapper is added or removed. |
 | Unknown schema semantics | Risky and unsupported | A vendor keyword or composition changes in a way the package cannot prove safe. |
@@ -27,3 +27,11 @@ The verifier compares contracts by tool identity. It does not infer renames: a r
 The complete accepted keyword and value-shape surface is the [JSON Schema support matrix](JSON-SCHEMA-SUPPORT.md). The OpenAPI `nullable` keyword is unsupported; standard JSON Schema type arrays express nullability. Numeric comparisons use JSON data-model equality, so `1`, `1.0`, and `1e0` are representation-equivalent in enums and numeric constraints.
 
 `Informational` is reserved for a future non-compatibility note; current structural differences are never downgraded to clean merely because they are unfamiliar. A `Breaking` change is never accepted by `Accept` without the separate `AcceptWithBreakingReview` call.
+
+Input compatibility preserves what existing callers may send. Output compatibility preserves what existing consumers may rely on: newly permitted outputs are breaking. For example, allowing a `null` result where the baseline promised a string is breaking; removing `null` from a return union is additive. `integer` is a subset of `number`. Incomparable types are breaking in either role. Property removal remains conservatively breaking; enum replacements with both additions and removals remain unsupported.
+
+Supported member edits compose: multiple property additions/removals, retained-property edits, and required-name swaps report their component changes without an artificial unsupported parent change. The strongest component determines the diff severity. Nested properties and array items follow the same input/output distinction.
+
+Each diff is bound to the immutable baseline and candidate instances passed to `Compare`. Both acceptance methods require that exact candidate instance. Reparsed, separately captured, reversed, or unrelated candidates require a fresh comparison against the intended baseline. Unsupported comparisons remain unacceptable through either method.
+
+Public change paths start at `$` for input schemas and metadata, or `$.returnSchema` for return schemas. Fixed keyword segments use dots; dynamic property names use JSON-quoted brackets and array elements use numeric indices. For example, `$.properties["a.properties.b"].enum` differs from `$.properties["a"].properties["b"].enum`. Quoting also distinguishes empty names, quotes, brackets, slashes, tildes, backslashes, control characters, and Unicode names.

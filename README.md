@@ -42,7 +42,9 @@ The verifier reports `Breaking`, `Risky`, `Additive`, or `Informational` results
 
 Malformed schemas and unknown or ambiguous schema semantics fail closed with an explicit diagnostic. Verification never overwrites a baseline or auto-approves a breaking change.
 
-The configured `AiToolContractLimits` are enforced consistently during capture, baseline parsing, comparison, and serialization. This includes schema members, actual `properties` entries, nested schemas, every supported array-valued schema/default family, schema bytes, depth, tools, and reported changes. A derived aggregate UTF-8 budget also bounds the complete baseline envelope, tool names/descriptions, and canonical JSON in both directions of a parse/serialize round trip. Boundary values are accepted and overflows return a resource diagnostic.
+Input compatibility preserves accepted calls; return compatibility preserves output guarantees. A newly nullable return, removed required return property, expanded return enum, or relaxed return bound is `Breaking`. Supported member changes compose. Acceptance requires the exact immutable candidate instance used by its comparison; compare again after recapturing or parsing a candidate. See the [compatibility guide](docs/COMPATIBILITY.md) for classifications and escaped diagnostic paths.
+
+The configured `AiToolContractLimits` are enforced consistently during capture, baseline parsing, comparison, and serialization. This includes schema members, actual `properties` entries, nested schemas, every supported array-valued schema/default family, schema bytes, logical depth (including nested enum/default values), tools, and reported changes. Logical depth includes the root and has a stack-safety ceiling of 256 even when a larger limit is supplied. A derived aggregate UTF-8 budget also bounds the complete baseline envelope, tool names/descriptions, and canonical JSON in both directions of a parse/serialize round trip. Escaped output budgets are checked before constructing oversized output. Boundary values are accepted and overflows return a resource diagnostic.
 
 ## Documentation
 

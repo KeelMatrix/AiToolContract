@@ -17,7 +17,7 @@ The program captures a real `AIFunction`, writes and parses the baseline explici
 The repository script also validates the exact archive with the same two target surfaces used by CI and release: it runs this net8.0 consumer on Windows, Linux, and macOS in CI, and compiles `PackageConsumer.NetStandard` for netstandard2.0. Invoke it with:
 
 ```powershell
-pwsh .\scripts\Invoke-PackageConsumerSmoke.ps1 -PackagePath .\artifacts\package-gate\KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg -Version 0.1.0-rc.1 -AbstractionsVersion 10.10.1
+pwsh .\scripts\Invoke-PackageConsumerSmoke.ps1 -PackagePath .\artifacts\package-gate\KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg -Version 0.1.0-rc.1 -AbstractionsVersion 10.11.0
 ```
 
 After the smoke run, remove the isolated feed and package cache:

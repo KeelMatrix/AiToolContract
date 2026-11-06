@@ -2,9 +2,11 @@
 
 This document defines the closed JSON Schema surface accepted by baseline version 1. Capture and baseline parsing normalize every schema into one internal model owned by this repository. Comparison operates only on that model; raw schema text is never used to decide equality. A construct that the model cannot represent fails closed at normalization with an `UnsupportedClassification` diagnostic.
 
-The subset is derived from probes of `AIFunctionFactory` with `Microsoft.Extensions.AI.Abstractions` `10.0.0`, `10.10.0`, and `10.10.1`. The probes cover required and optional parameters, parameter descriptions, defaults, `DateTime`, `Uri`, `Guid`, enums, nullable values, arrays, and nested objects.
+The subset is derived from probes of `AIFunctionFactory` with `Microsoft.Extensions.AI.Abstractions` `10.0.0` and `10.11.0`. The probes cover required and optional parameters, parameter descriptions, defaults, `DateTime`, `Uri`, `Guid`, enums, nullable values, arrays, and nested objects.
 
-Transition coverage is model-derived. The rule table in `SchemaTransitionRules` is keyed by every property of the closed `NormalizedSchema` model and by its supported transition directions; the test suite reflects the model and asserts equality with both rule-table key sets. A missing model property, direction, or rule is reported as an unsupported classification rather than a clean result. The generator exercises every rule at the root and at depth two for both input and return schemas, so nested property, enum, constraint, type, and item transitions cannot be omitted from coverage by forgetting a hand-written matrix row.
+Transition coverage checks the closed model and observed classifier output. Independent consumer-instance witnesses validate compatibility direction without using the production rule table. Composed changes exercise emitted directions for multiple member edits, required swaps, and nested schemas. The rule table in `SchemaTransitionRules` is keyed by every property of the closed `NormalizedSchema` model and by its supported transition directions; a missing rule produces an unsupported classification. The generator also exercises each rule at the root and at depth two in both schema roles.
+
+The narrowing/widening rules below describe inputs. Returns reverse that direction: widening loses an output guarantee and is breaking; narrowing strengthens a guarantee and is additive. Incomparable types remain breaking. Required-name swaps and property edits are decomposed by member. See [compatibility](COMPATIBILITY.md) for examples.
 
 ## Closed keyword surface
 
@@ -23,7 +25,7 @@ Transition coverage is model-derived. The rule table in `SchemaTransitionRules` 
 | `maximum`, `exclusiveMaximum` | JSON number | Bound narrowing is `Breaking`; widening is `Additive` |
 | `minLength`, `maxLength`, `minItems`, `maxItems` | Non-negative integer JSON number | Bound narrowing is `Breaking`; widening is `Additive` |
 
-Framework output differs between the tested endpoints: `10.10.0` may express nullable reference, object, and array values as a type union containing `null`, while `10.0.0` may use the non-null type with a `null` default. Both forms are represented by the same closed model and round-trip without a clean-comparison accident.
+Framework output differs between the tested endpoints: `10.11.0` may express nullable reference, object, and array values as a type union containing `null`, while `10.0.0` may use the non-null type with a `null` default. Both forms are represented by the same closed model and round-trip without a clean-comparison accident.
 
 The OpenAPI `nullable` keyword is not part of this JSON Schema subset. Use a standard JSON Schema type array such as `["string", "null"]`. An explicit `nullable` member fails closed as unsupported.
 

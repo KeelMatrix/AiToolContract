@@ -38,9 +38,9 @@ public enum AiToolChangeKind
     ConstraintExpanded,
     /// <summary>An optional parameter was added.</summary>
     OptionalParameterAdded,
-    /// <summary>A return schema became more restrictive.</summary>
+    /// <summary>A return schema lost an existing output guarantee.</summary>
     ReturnSchemaBreaking,
-    /// <summary>A return schema became less restrictive.</summary>
+    /// <summary>A return schema gained or strengthened an output guarantee.</summary>
     ReturnSchemaAdditive,
     /// <summary>A model-facing description changed.</summary>
     DescriptionChanged,
@@ -81,7 +81,7 @@ public sealed class AiToolContractLimits
     /// <summary>Maximum UTF-8 bytes in one schema.</summary>
     public int MaxSchemaBytes { get; set; } = 1_048_576;
 
-    /// <summary>Maximum schema nesting depth.</summary>
+    /// <summary>Maximum logical schema or JSON-value levels, including the root; capped at 256 for stack safety.</summary>
     public int MaxSchemaDepth { get; set; } = 64;
 
     /// <summary>Maximum object properties in one schema.</summary>
@@ -101,9 +101,11 @@ public sealed class AiToolContractLimits
 
     internal int GetJsonDocumentMaxDepth(int envelopeDepth)
     {
-        var requested = (long)MaxSchemaDepth + envelopeDepth;
+        var requested = (long)GetLogicalMaxDepth() * 2L + envelopeDepth;
         return (int)Math.Min(1000L, requested);
     }
+
+    internal int GetLogicalMaxDepth() => Math.Min(MaxSchemaDepth, 256);
 
     internal long GetBaselineByteLimit()
     {
@@ -162,7 +164,7 @@ public sealed class AiToolContractTool
     internal void ValidateLimits(AiToolContractLimits limits)
     {
         InputSchema.ValidateLimits(limits);
-        ReturnSchema?.ValidateLimits(limits);
+        ReturnSchema?.ValidateLimits(limits, "$.returnSchema");
     }
 
     /// <summary>Tool identity using ordinal comparison.</summary>
@@ -251,7 +253,7 @@ public sealed class AiToolChange
     /// <summary>Affected tool name.</summary>
     public string ToolName { get; }
 
-    /// <summary>Schema or metadata path, when known.</summary>
+    /// <summary>Schema or metadata path with JSON-quoted bracket segments for dynamic property names, when known.</summary>
     public string Path { get; }
 
     /// <summary>Human-readable explanation.</summary>
@@ -261,8 +263,10 @@ public sealed class AiToolChange
 /// <summary>Structured comparison of two tool contract baselines.</summary>
 public sealed class AiToolContractDiff
 {
-    internal AiToolContractDiff(IReadOnlyList<AiToolChange> changes, IReadOnlyList<AiToolContractDiagnostic> diagnostics)
+    internal AiToolContractDiff(AiToolContractBaseline baseline, AiToolContractBaseline candidate, IReadOnlyList<AiToolChange> changes, IReadOnlyList<AiToolContractDiagnostic> diagnostics)
     {
+        Baseline = baseline;
+        Candidate = candidate;
         Changes = new ReadOnlyCollection<AiToolChange>(changes.ToList());
         Diagnostics = new ReadOnlyCollection<AiToolContractDiagnostic>(diagnostics.ToList());
         Compatibility = changes.Count == 0 ? AiToolCompatibility.Informational : changes.Max(static c => c.Compatibility);
@@ -279,6 +283,9 @@ public sealed class AiToolContractDiff
 
     /// <summary>Comparison diagnostics.</summary>
     public IReadOnlyList<AiToolContractDiagnostic> Diagnostics { get; }
+
+    internal AiToolContractBaseline Baseline { get; }
+    internal AiToolContractBaseline Candidate { get; }
 
     internal bool HasBreaking => Changes.Any(static c => c.Compatibility == AiToolCompatibility.Breaking);
     internal bool HasUnsupported => Diagnostics.Any(static d => d.Kind == AiToolDiagnosticKind.UnsupportedClassification) || Changes.Any(static c => c.Kind == AiToolChangeKind.Unsupported);

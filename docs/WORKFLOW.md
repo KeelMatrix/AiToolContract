@@ -29,4 +29,4 @@ Verification is read-only. It does not update, overwrite, stage, or accept a bas
 
 ## Accept an update explicitly
 
-After a human or policy review, call `AiToolContractVerifier.Accept` for a candidate with no breaking or unsupported differences, or `AcceptWithBreakingReview` after an explicit breaking-change review. Serialize the returned baseline yourself. Neither method writes a file or updates a repository.
+After a human or policy review, call `AiToolContractVerifier.Accept` for a candidate with no breaking or unsupported differences, or `AcceptWithBreakingReview` after an explicit breaking-change review. Use the exact candidate instance passed to `Compare`; the diff also retains the baseline selected for that comparison. A separately captured or parsed candidate requires a fresh comparison against the intended baseline. Serialize the returned baseline yourself. Neither method writes a file or updates a repository.

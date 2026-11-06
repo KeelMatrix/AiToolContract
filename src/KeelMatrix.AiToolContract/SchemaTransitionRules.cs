@@ -99,24 +99,23 @@ internal static class SchemaTransitionRules
         Unsupported(nameof(NormalizedSchema.Format), SchemaTransitionDirection.Removed),
         Unsupported(nameof(NormalizedSchema.Format), SchemaTransitionDirection.Changed),
 
-        InputReturn(nameof(NormalizedSchema.Types), SchemaTransitionDirection.Added, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
-        InputReturn(nameof(NormalizedSchema.Types), SchemaTransitionDirection.Removed, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive),
-        InputReturn(nameof(NormalizedSchema.Types), SchemaTransitionDirection.Expanded, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive),
-        InputReturn(nameof(NormalizedSchema.Types), SchemaTransitionDirection.Narrowed, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
+        InputReturn(nameof(NormalizedSchema.Types), SchemaTransitionDirection.Added, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive),
+        InputReturn(nameof(NormalizedSchema.Types), SchemaTransitionDirection.Removed, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
+        InputReturn(nameof(NormalizedSchema.Types), SchemaTransitionDirection.Expanded, AiToolChangeKind.TypeChanged, AiToolCompatibility.Additive, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
+        InputReturn(nameof(NormalizedSchema.Types), SchemaTransitionDirection.Narrowed, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive),
         InputReturn(nameof(NormalizedSchema.Types), SchemaTransitionDirection.Changed, AiToolChangeKind.TypeChanged, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
 
         InputReturn(nameof(NormalizedSchema.Properties), SchemaTransitionDirection.OptionalPropertyAdded, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive),
-        InputReturn(nameof(NormalizedSchema.Properties), SchemaTransitionDirection.RequiredPropertyAdded, AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
+        InputReturn(nameof(NormalizedSchema.Properties), SchemaTransitionDirection.RequiredPropertyAdded, AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive),
         InputReturn(nameof(NormalizedSchema.Properties), SchemaTransitionDirection.Removed, AiToolChangeKind.ParameterRemoved, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
 
-        InputReturn(nameof(NormalizedSchema.Required), SchemaTransitionDirection.Added, AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
-        InputReturn(nameof(NormalizedSchema.Required), SchemaTransitionDirection.Removed, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive),
-        Unsupported(nameof(NormalizedSchema.Required), SchemaTransitionDirection.Changed),
+        InputReturn(nameof(NormalizedSchema.Required), SchemaTransitionDirection.Added, AiToolChangeKind.RequiredParameterAdded, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive),
+        InputReturn(nameof(NormalizedSchema.Required), SchemaTransitionDirection.Removed, AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
 
-        InputReturn(nameof(NormalizedSchema.EnumValues), SchemaTransitionDirection.Added, AiToolChangeKind.EnumNarrowed, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
-        InputReturn(nameof(NormalizedSchema.EnumValues), SchemaTransitionDirection.Removed, AiToolChangeKind.EnumExpanded, AiToolCompatibility.Additive, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive),
-        InputReturn(nameof(NormalizedSchema.EnumValues), SchemaTransitionDirection.Expanded, AiToolChangeKind.EnumExpanded, AiToolCompatibility.Additive, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive),
-        InputReturn(nameof(NormalizedSchema.EnumValues), SchemaTransitionDirection.Narrowed, AiToolChangeKind.EnumNarrowed, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
+        InputReturn(nameof(NormalizedSchema.EnumValues), SchemaTransitionDirection.Added, AiToolChangeKind.EnumNarrowed, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive),
+        InputReturn(nameof(NormalizedSchema.EnumValues), SchemaTransitionDirection.Removed, AiToolChangeKind.EnumExpanded, AiToolCompatibility.Additive, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
+        InputReturn(nameof(NormalizedSchema.EnumValues), SchemaTransitionDirection.Expanded, AiToolChangeKind.EnumExpanded, AiToolCompatibility.Additive, AiToolChangeKind.ReturnSchemaBreaking, AiToolCompatibility.Breaking),
+        InputReturn(nameof(NormalizedSchema.EnumValues), SchemaTransitionDirection.Narrowed, AiToolChangeKind.EnumNarrowed, AiToolCompatibility.Breaking, AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive),
         Unsupported(nameof(NormalizedSchema.EnumValues), SchemaTransitionDirection.Changed),
 
         Unsupported(nameof(NormalizedSchema.Items), SchemaTransitionDirection.Added),
@@ -217,6 +216,22 @@ internal static class SchemaTransitionRules
             if (ValuesEqual(property.Key, oldValue, newValue))
                 continue;
 
+            if (property.Key == nameof(NormalizedSchema.Properties))
+            {
+                foreach (var name in newSchema.Properties.Keys.Except(oldSchema.Properties.Keys, StringComparer.Ordinal))
+                    transitions.Add(new SchemaTransition(property.Key, newSchema.Required.Contains(name, StringComparer.Ordinal) ? SchemaTransitionDirection.RequiredPropertyAdded : SchemaTransitionDirection.OptionalPropertyAdded));
+                foreach (var name in oldSchema.Properties.Keys.Except(newSchema.Properties.Keys, StringComparer.Ordinal))
+                    transitions.Add(new SchemaTransition(property.Key, SchemaTransitionDirection.Removed));
+                continue;
+            }
+            if (property.Key == nameof(NormalizedSchema.Required))
+            {
+                if (newSchema.Required.Except(oldSchema.Required, StringComparer.Ordinal).Any())
+                    transitions.Add(new SchemaTransition(property.Key, SchemaTransitionDirection.Added));
+                if (oldSchema.Required.Except(newSchema.Required, StringComparer.Ordinal).Any())
+                    transitions.Add(new SchemaTransition(property.Key, SchemaTransitionDirection.Removed));
+                continue;
+            }
             var direction = GetDirection(property.Key, oldValue, newValue, newSchema);
             if (direction.HasValue)
                 transitions.Add(new SchemaTransition(property.Key, direction.Value));
@@ -247,8 +262,8 @@ internal static class SchemaTransitionRules
         var kind = narrowed ? AiToolChangeKind.ConstraintNarrowed : AiToolChangeKind.ConstraintExpanded;
         var compatibility = narrowed ? AiToolCompatibility.Breaking : AiToolCompatibility.Additive;
         return InputReturn(propertyName, direction, kind, compatibility,
-            narrowed ? AiToolChangeKind.ReturnSchemaBreaking : AiToolChangeKind.ReturnSchemaAdditive,
-            compatibility);
+            narrowed ? AiToolChangeKind.ReturnSchemaAdditive : AiToolChangeKind.ReturnSchemaBreaking,
+            narrowed ? AiToolCompatibility.Additive : AiToolCompatibility.Breaking);
     }
 
     private static bool ValuesEqual(string propertyName, object? oldValue, object? newValue)
@@ -284,12 +299,8 @@ internal static class SchemaTransitionRules
                 return SchemaTransitionDirection.Removed;
             return ValueSetDirection((IReadOnlyList<NormalizedJsonValue>)oldValue, (IReadOnlyList<NormalizedJsonValue>)newValue);
         }
-        if (propertyName == nameof(NormalizedSchema.Properties))
-            return PropertyDirection((IReadOnlyDictionary<string, NormalizedSchema>)oldValue!, (IReadOnlyDictionary<string, NormalizedSchema>)newValue!, newSchema.Required);
         if (propertyName == nameof(NormalizedSchema.Items))
             return oldValue is null ? SchemaTransitionDirection.Added : newValue is null ? SchemaTransitionDirection.Removed : null;
-        if (propertyName == nameof(NormalizedSchema.Required))
-            return RequiredDirection((IReadOnlyList<string>)oldValue!, (IReadOnlyList<string>)newValue!);
         if (propertyName == nameof(NormalizedSchema.HasDefault))
             return (bool)oldValue! ? SchemaTransitionDirection.Removed : SchemaTransitionDirection.Added;
         if (propertyName is nameof(NormalizedSchema.Minimum) or nameof(NormalizedSchema.Maximum) or nameof(NormalizedSchema.ExclusiveMinimum) or nameof(NormalizedSchema.ExclusiveMaximum) or nameof(NormalizedSchema.MinLength) or nameof(NormalizedSchema.MaxLength) or nameof(NormalizedSchema.MinItems) or nameof(NormalizedSchema.MaxItems))
@@ -314,34 +325,18 @@ internal static class SchemaTransitionRules
         return SchemaTransitionDirection.Changed;
     }
 
-    private static SchemaTransitionDirection SetDirection(IReadOnlyList<string> oldValues, IReadOnlyList<string> newValues)
+    private static SchemaTransitionDirection? SetDirection(IReadOnlyList<string> oldValues, IReadOnlyList<string> newValues)
     {
         if (oldValues.Count == 0)
             return SchemaTransitionDirection.Added;
         if (newValues.Count == 0)
             return SchemaTransitionDirection.Removed;
-        var oldSet = new HashSet<string>(oldValues, StringComparer.Ordinal);
-        var newSet = new HashSet<string>(newValues, StringComparer.Ordinal);
-        return newSet.IsSubsetOf(oldSet)
+        if (TypeSubset(newValues, oldValues) && TypeSubset(oldValues, newValues))
+            return null;
+        return TypeSubset(newValues, oldValues)
             ? SchemaTransitionDirection.Narrowed
-            : oldSet.IsSubsetOf(newSet)
+            : TypeSubset(oldValues, newValues)
                 ? SchemaTransitionDirection.Expanded
-                : SchemaTransitionDirection.Changed;
-    }
-
-    private static SchemaTransitionDirection RequiredDirection(IReadOnlyList<string> oldValues, IReadOnlyList<string> newValues)
-    {
-        if (oldValues.Count == 0)
-            return SchemaTransitionDirection.Added;
-        if (newValues.Count == 0)
-            return SchemaTransitionDirection.Removed;
-
-        var oldSet = new HashSet<string>(oldValues, StringComparer.Ordinal);
-        var newSet = new HashSet<string>(newValues, StringComparer.Ordinal);
-        return oldSet.IsSubsetOf(newSet)
-            ? SchemaTransitionDirection.Added
-            : newSet.IsSubsetOf(oldSet)
-                ? SchemaTransitionDirection.Removed
                 : SchemaTransitionDirection.Changed;
     }
 
@@ -352,17 +347,6 @@ internal static class SchemaTransitionRules
         return narrowed ? SchemaTransitionDirection.Narrowed : expanded ? SchemaTransitionDirection.Expanded : SchemaTransitionDirection.Changed;
     }
 
-    private static SchemaTransitionDirection? PropertyDirection(IReadOnlyDictionary<string, NormalizedSchema> oldProperties, IReadOnlyDictionary<string, NormalizedSchema> newProperties, IReadOnlyList<string>? newRequired)
-    {
-        var added = newProperties.Keys.Except(oldProperties.Keys, StringComparer.Ordinal).ToArray();
-        var removed = oldProperties.Keys.Except(newProperties.Keys, StringComparer.Ordinal).ToArray();
-        if (added.Length == 1 && removed.Length == 0 && oldProperties.All(property => newProperties.TryGetValue(property.Key, out var other) && property.Value.SemanticallyEquals(other)))
-        {
-            var required = newRequired?.Contains(added[0], StringComparer.Ordinal) == true;
-            return required ? SchemaTransitionDirection.RequiredPropertyAdded : SchemaTransitionDirection.OptionalPropertyAdded;
-        }
-        if (removed.Length == 1 && added.Length == 0 && newProperties.All(property => oldProperties.TryGetValue(property.Key, out var other) && property.Value.SemanticallyEquals(other)))
-            return SchemaTransitionDirection.Removed;
-        return added.Length == 0 && removed.Length == 0 ? null : SchemaTransitionDirection.Changed;
-    }
+    internal static bool TypeSubset(IReadOnlyList<string> subset, IReadOnlyList<string> superset) =>
+        superset.Count == 0 || subset.Count > 0 && subset.All(value => superset.Contains(value, StringComparer.Ordinal) || value == "integer" && superset.Contains("number", StringComparer.Ordinal));
 }

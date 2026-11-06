@@ -12,6 +12,8 @@ coverage/
 .idea/
 *.user
 *.suo
+*.userprefs
+.cache/
 *.nupkg
 *.snupkg
 *.pdb

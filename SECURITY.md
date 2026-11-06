@@ -15,3 +15,5 @@ The latest published stable version receives security fixes. Pre-release version
 Security reports should concern the library, its package contents, unsafe parsing/resource behavior, accidental network or data collection, or a release artifact. Ordinary compatibility questions and usage bugs belong in the normal issue tracker after sensitive details have been removed.
 
 Capture, baseline parsing, comparison, and serialization enforce the configured schema, tool, array, property, byte, depth, and change limits, plus one derived aggregate UTF-8 budget for complete baselines. Findings involving a limit bypass or a raw overflow should include the public entry point and a minimized schema or baseline that reproduces it without proprietary metadata.
+
+Escaped output budgets include metadata and stop before allocating an oversized serialized baseline. Nested enum/default values share the schema counters and logical depth contract (capped at 256 levels). Acceptance rejects comparison evidence for a different candidate. Diagnostic paths quote dynamic names unambiguously; baselines and diagnostic contents still require the application's access controls.
