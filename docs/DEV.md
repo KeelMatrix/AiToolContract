@@ -72,6 +72,8 @@ dotnet build .\smoke\PackageConsumer.NetStandard\PackageConsumer.NetStandard.csp
 
 The consumer captures a real `AIFunction`, round-trips a baseline, verifies clean, adds a required argument, and observes a `Breaking` result. It also checks required output losses and swaps during declaration changes, existing required-member restrictions, malformed Unicode, distinct schema paths, enum membership, both acceptance methods, and component-count limits.
 
+`RecursiveRequiredTests` covers newly required children and unsupported components through capture, baseline round trips, comparison, verification, and both acceptance methods. `SchemaFailureLocationTests` covers counter boundaries, enum-key expansion, and malformed schema decoding in both roles. The package consumer also checks recursive unsupported rejection and failure locations against the built archive.
+
 The CI/release-equivalent command is `pwsh .\scripts\Invoke-PackageConsumerSmoke.ps1 -PackagePath <exact-nupkg> -Version <package-version> -AbstractionsVersion 10.11.0`; it runs the net8.0 consumer and compiles a separate netstandard2.0 consumer against that exact archive.
 
 Clean up the isolated feed and package cache after the smoke run:

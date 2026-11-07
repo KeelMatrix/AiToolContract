@@ -133,7 +133,7 @@ public sealed class AiToolContractDiagnostic
     /// <summary>Diagnostic category.</summary>
     public AiToolDiagnosticKind Kind { get; }
 
-    /// <summary>Actionable diagnostic text.</summary>
+    /// <summary>Actionable diagnostic text; schema failures identify the input or return root and affected location.</summary>
     public string Message { get; }
 }
 

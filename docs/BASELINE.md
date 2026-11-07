@@ -41,4 +41,6 @@ Canonical string encoding is measured cumulatively before allocation, including 
 
 Diagnostic locations use the escaped path convention in the [compatibility guide](COMPATIBILITY.md).
 
+Schema property/array counter failures, enum-key encoding failures, and malformed string decoding retain the input or return root and the affected member or array index. If a property name cannot be decoded, the location identifies its containing object. Tightened-limit comparison and serialization retain that context too; complete-schema byte failures identify the schema root. Duplicate members are rejected by envelope validation and schema normalization, where their context is available.
+
 Property and array counters use the normalized representation: an empty `properties` map is omitted, and a one-element `type` array becomes a scalar type. Neither contributes an extra container count after that normalization. Raw schema and baseline input still have independent UTF-8 byte limits before parsing.

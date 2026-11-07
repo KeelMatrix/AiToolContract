@@ -83,7 +83,6 @@ public static class AiToolContractJson
                 throw Malformed("The baseline contains unmatched UTF-16 surrogates.");
             EnsureBaselineByteLimit(json, effectiveLimits);
 
-            RejectDuplicateProperties(json, effectiveLimits);
             using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = effectiveLimits.GetJsonDocumentMaxDepth(4), CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
             var root = document.RootElement;
             RequireObject(root, "The baseline root must be a JSON object.");
@@ -177,7 +176,8 @@ public static class AiToolContractJson
     {
         var actual = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in element.EnumerateObject())
-            actual.Add(property.Name);
+            if (!actual.Add(property.Name))
+                throw Malformed("The " + context + " contains a duplicate JSON object member.");
         foreach (var property in actual)
             if (!allowed.Contains(property))
                 throw Malformed("Unknown " + context + " member '" + property + "'.");
@@ -214,52 +214,6 @@ public static class AiToolContractJson
     {
         if (Encoding.UTF8.GetByteCount(baselineJson) > limits.GetBaselineByteLimit())
             throw Resource("The baseline exceeds the configured aggregate UTF-8 byte limit.");
-    }
-
-    private static void RejectDuplicateProperties(string json, AiToolContractLimits limits)
-    {
-        var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(json), new JsonReaderOptions
-        {
-            CommentHandling = JsonCommentHandling.Disallow,
-            AllowTrailingCommas = false,
-            MaxDepth = limits.GetJsonDocumentMaxDepth(4)
-        });
-        var objects = new Stack<HashSet<string>>();
-        var sawToken = false;
-
-        try
-        {
-            while (reader.Read())
-            {
-                sawToken = true;
-                switch (reader.TokenType)
-                {
-                    case JsonTokenType.StartObject:
-                        objects.Push(new HashSet<string>(StringComparer.Ordinal));
-                        break;
-                    case JsonTokenType.PropertyName:
-                        if (objects.Count == 0 || !objects.Peek().Add(reader.GetString()!))
-                            throw Malformed("The baseline contains a duplicate JSON object member.");
-                        break;
-                    case JsonTokenType.EndObject:
-                        if (objects.Count == 0)
-                            throw Malformed("The baseline JSON is malformed.");
-                        objects.Pop();
-                        break;
-                }
-            }
-        }
-        catch (AiToolContractException)
-        {
-            throw;
-        }
-        catch (JsonException ex)
-        {
-            throw new AiToolContractException(new AiToolContractDiagnostic(IsDepthLimit(ex) ? AiToolDiagnosticKind.CanonicalizationOrResourceLimit : AiToolDiagnosticKind.MalformedBaseline, "The baseline JSON is " + (IsDepthLimit(ex) ? "too deep" : "malformed") + ": " + ex.Message));
-        }
-
-        if (!sawToken || objects.Count != 0)
-            throw Malformed("The baseline JSON is malformed.");
     }
 
     internal static bool IsDepthLimit(JsonException exception) =>

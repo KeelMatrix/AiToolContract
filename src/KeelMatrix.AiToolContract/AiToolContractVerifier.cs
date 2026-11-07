@@ -115,11 +115,7 @@ public static class AiToolContractVerifier
     private static void CompareSchema(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, HashSet<UnsupportedSemanticKey> unsupportedKeys, SchemaNodeIdentity nodeIdentity)
     {
         var transitions = SchemaTransitionRules.FindTransitions(oldSchema, newSchema);
-        foreach (var transition in transitions)
-        {
-            if (!SchemaTransitionRules.TryGetRule(transition.PropertyName, transition.Direction, out var rule) || (input ? rule!.Input : rule!.Return).Unsupported)
-                AddUnsupported(changes, diagnostics, limits, unsupportedKeys, toolName, AppendModelPropertyPath(path, transition.PropertyName), "The normalized schema transition '" + transition.PropertyName + ":" + transition.Direction + "' has no explicit compatibility rule.", CreateUnsupportedKey(toolName, nodeIdentity, transition.PropertyName, transition.Direction));
-        }
+        CompareUnsupportedTransitions(transitions, toolName, path, input, changes, diagnostics, limits, unsupportedKeys, nodeIdentity);
 
         if (oldSchema.SemanticallyEquals(newSchema))
             return;
@@ -190,6 +186,8 @@ public static class AiToolContractVerifier
                 continue;
             }
             var required = newSchema.Required.Contains(newProperty.Key, StringComparer.Ordinal);
+            if (required)
+                CompareRequiredAddition(newProperty.Value, toolName, SchemaPath.Property(path + ".properties", newProperty.Key), input, changes, diagnostics, limits, unsupportedKeys, nodeIdentity.Property(newProperty.Key));
             if (!input)
             {
                 var kind = AiToolChangeKind.ReturnSchemaAdditive;
@@ -205,6 +203,23 @@ public static class AiToolContractVerifier
                 Add(changes, limits, new AiToolChange(AiToolChangeKind.OptionalParameterAdded, AiToolCompatibility.Additive, toolName, SchemaPath.Property(path + ".properties", newProperty.Key), "Optional parameter '" + newProperty.Key + "' was added."));
             }
         }
+    }
+
+    private static void CompareRequiredAddition(NormalizedSchema schema, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, HashSet<UnsupportedSemanticKey> unsupportedKeys, SchemaNodeIdentity nodeIdentity)
+    {
+        // The declaration/presence records cover supported restrictions on a new
+        // required member. They cannot replace its unsupported-value safeguards.
+        CompareUnsupportedTransitions(SchemaTransitionRules.FindTransitions(UnconstrainedSchema, schema), toolName, path, input, changes, diagnostics, limits, unsupportedKeys, nodeIdentity);
+        foreach (var property in schema.Properties)
+            if (schema.Required.Contains(property.Key, StringComparer.Ordinal))
+                CompareRequiredAddition(property.Value, toolName, SchemaPath.Property(path + ".properties", property.Key), input, changes, diagnostics, limits, unsupportedKeys, nodeIdentity.Property(property.Key));
+    }
+
+    private static void CompareUnsupportedTransitions(IReadOnlyList<SchemaTransition> transitions, string toolName, string path, bool input, List<AiToolChange> changes, List<AiToolContractDiagnostic> diagnostics, AiToolContractLimits limits, HashSet<UnsupportedSemanticKey> unsupportedKeys, SchemaNodeIdentity nodeIdentity)
+    {
+        foreach (var transition in transitions)
+            if (!SchemaTransitionRules.TryGetRule(transition.PropertyName, transition.Direction, out var rule) || (input ? rule!.Input : rule!.Return).Unsupported)
+                AddUnsupported(changes, diagnostics, limits, unsupportedKeys, toolName, AppendModelPropertyPath(path, transition.PropertyName), "The normalized schema transition '" + transition.PropertyName + ":" + transition.Direction + "' has no explicit compatibility rule.", CreateUnsupportedKey(toolName, nodeIdentity, transition.PropertyName, transition.Direction));
     }
 
     private static void CompareRequired(NormalizedSchema oldSchema, NormalizedSchema newSchema, string toolName, string path, bool input, List<AiToolChange> changes, AiToolContractLimits limits)
@@ -323,13 +338,13 @@ public static class AiToolContractVerifier
             return;
 
         Add(changes, limits, new AiToolChange(AiToolChangeKind.Unsupported, AiToolCompatibility.Risky, toolName, path, message));
-        diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, message));
+        diagnostics.Add(new AiToolContractDiagnostic(AiToolDiagnosticKind.UnsupportedClassification, message + " Schema location: " + path + "."));
     }
 
     private static void Add(List<AiToolChange> changes, AiToolContractLimits limits, AiToolChange change)
     {
         if (changes.Count >= limits.MaxChanges)
-            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, "The comparison exceeds the configured change-count limit."));
+            throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CanonicalizationOrResourceLimit, "The comparison exceeds the configured change-count limit at " + change.Path + "."));
         changes.Add(change);
     }
 

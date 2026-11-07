@@ -114,4 +114,35 @@ var enumBefore = ParseBaseline("{\"enum\":[" + enumValues + "]}");
 var enumAfter = ParseBaseline("{\"enum\":[" + enumValues + "],\"description\":\"changed\"}");
 Require(AiToolContractVerifier.Compare(enumBefore, enumAfter, new AiToolContractLimits { MaxChanges = 1 }).Changes.Count == 1, "Unchanged enum membership generated a difference.");
 
+foreach (var output in new[] { false, true })
+{
+    const string oldSchema = "{\"properties\":{\"id\":{}},\"required\":[\"id\"]}";
+    const string nextSchema = "{\"properties\":{\"id\":{\"properties\":{\"child\":{\"default\":1}},\"required\":[\"child\"]}},\"required\":[\"id\"]}";
+    var previous = ParseBaseline(output ? "{}" : oldSchema, output ? oldSchema : null);
+    var candidate = ParseBaseline(output ? "{}" : nextSchema, output ? nextSchema : null);
+    var diff = AiToolContractVerifier.Compare(previous, candidate);
+    var role = output ? "$.returnSchema" : "$.inputSchema";
+    Require(diff.Changes.Any(c => c.Kind == AiToolChangeKind.Unsupported && c.Path == role + ".properties[\"id\"].properties[\"child\"].default"), "A newly required child lost its unsupported component.");
+    foreach (var breakingReview in new[] { false, true })
+    {
+        var rejected = false;
+        try
+        {
+            if (breakingReview) AiToolContractVerifier.AcceptWithBreakingReview(candidate, diff);
+            else AiToolContractVerifier.Accept(candidate, diff);
+        }
+        catch (AiToolContractException ex) { rejected = ex.Diagnostic.Kind == AiToolDiagnosticKind.UnsupportedClassification; }
+        Require(rejected, "An unsupported required child bypassed acceptance.");
+    }
+    var counted = ParseBaseline(output ? "{}" : "{\"enum\":[1,2]}", output ? "{\"enum\":[1,2]}" : null);
+    var located = false;
+    try { AiToolContractJson.Serialize(counted, new AiToolContractLimits { MaxArrayItems = 1 }); }
+    catch (AiToolContractException ex) { located = ex.Diagnostic.Kind == AiToolDiagnosticKind.CanonicalizationOrResourceLimit && ex.Diagnostic.Message.Contains(role + ".enum", StringComparison.Ordinal); }
+    Require(located, "A counter failure lost its schema location.");
+    var malformedLocated = false;
+    try { ParseBaseline(output ? "{}" : "{\"description\":\"\\ud800\"}", output ? "{\"description\":\"\\ud800\"}" : null); }
+    catch (AiToolContractException ex) { malformedLocated = ex.Diagnostic.Kind == AiToolDiagnosticKind.MalformedBaseline && ex.Diagnostic.Message.Contains(role + ".description", StringComparison.Ordinal); }
+    Require(malformedLocated, "A malformed schema string lost its location.");
+}
+
 Console.WriteLine("CONSUMER_SMOKE_PASS");

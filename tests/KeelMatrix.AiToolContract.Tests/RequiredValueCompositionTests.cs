@@ -89,11 +89,6 @@ public sealed class RequiredValueCompositionTests
                     var newSchema = "{\"properties\":{\"id\":" + subtree + "}}";
                     if (retained)
                         newSchema = newSchema[..^1] + ",\"required\":[\"id\"]}";
-                    // A genuinely new nested optional member follows the documented
-                    // optional-addition policy. A required child has no old callers,
-                    // so inspect a retained child's unsupported transition directly.
-                    if (keyword == "default" && subtree.Contains("child", StringComparison.Ordinal))
-                        oldSchema = "{\"required\":[\"id\"],\"properties\":{\"id\":{\"required\":[\"child\"]}}}";
                     var baseline = Capture(Wrap(oldSchema, position), output);
                     var candidate = Capture(Wrap(newSchema, position), output);
                     var diff = AiToolContractVerifier.Compare(baseline, candidate);
