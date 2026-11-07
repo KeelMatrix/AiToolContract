@@ -18,4 +18,6 @@ Capture, baseline parsing, comparison, and serialization enforce the configured 
 
 Required nested declarations cannot bypass unsupported-transition rejection in either acceptance method. Schema resource and decoding failures retain the input or return root and a useful location, including during revalidation of an existing baseline.
 
+Arbitrary raw member names are JSON-quoted in early resource, duplicate, and unsupported-keyword error locations so that path-shaped names cannot alias nested fields. Undecodable names identify the nearest valid containing object.
+
 Escaped output budgets include metadata and stop before allocating an oversized serialized baseline. Nested enum/default values share the schema counters and logical depth contract (capped at 256 levels). Acceptance rejects comparison evidence for a different candidate. Oversized schema elements are measured before text copying, and enum uniqueness/membership avoids pairwise scans. Malformed Unicode strings are rejected before successful persistence. Diagnostic paths distinguish metadata, input, and return roots and quote dynamic names unambiguously; baselines and diagnostic contents still require the application's access controls.

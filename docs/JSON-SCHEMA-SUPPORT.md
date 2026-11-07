@@ -33,6 +33,8 @@ The OpenAPI `nullable` keyword is not part of this JSON Schema subset. Use a sta
 
 Adding a required declaration does not suppress unsupported default, format, reference, or item-schema transitions inside it or its required descendants. Both acceptance methods reject these components. Malformed schema string values and names retain their input/return location; an undecodable name identifies its containing object.
 
+Failures for arbitrary raw member names use JSON-quoted path segments, including early resource checks, duplicate detection, and unsupported-keyword rejection. Recognized fixed keywords retain dotted segments. See the [path convention](COMPATIBILITY.md).
+
 Boolean schemas, tuple-form or boolean `items`, composition keywords such as `allOf`/`anyOf`/`oneOf`, `$defs` and `definitions`, `additionalProperties`, `not`, `contains`, vendor keywords, and every other unlisted keyword are outside the normalized model. They fail at capture or baseline parsing at any depth. Wrong value kinds, duplicate members, empty `enum`/`required` arrays, duplicate set members, malformed JSON, and invalid `$ref` URI-reference text fail closed as well. Unmatched Unicode surrogates in strings or property names are malformed; valid supplementary pairs and U+FFFD persist without replacement.
 
 JSON numbers are parsed as a coefficient plus arbitrary-precision decimal exponent. Lexical forms such as `1`, `1.0`, and `1e0` are equal by JSON data-model value. The configured schema-byte limit bounds the input; exponent values are not truncated to `long`. If a future representation limit is reached, the result is an explicit `CanonicalizationOrResourceLimit` diagnostic, never `MalformedBaseline`.

@@ -649,11 +649,11 @@ internal static class SchemaNormalizer
             {
                 var name = DecodePropertyName(property, path);
                 if (members.ContainsKey(name))
-                    throw MalformedAt("The JSON Schema contains duplicate object property at " + SchemaPath.Property(path, name) + ".");
+                    throw MalformedAt("The JSON Schema contains duplicate object property at " + SchemaPath.Member(path, name) + ".");
                 members.Add(name, property.Value);
                 var omittedEmptyMap = name == "properties" && property.Value.ValueKind == JsonValueKind.Object && !property.Value.EnumerateObject().Any();
                 if (!omittedEmptyMap && ++_propertyCount > _limits.MaxProperties)
-                    throw Resource("The JSON Schema exceeds the configured property limit at " + path + "." + name + ".");
+                    throw Resource("The JSON Schema exceeds the configured property limit at " + SchemaPath.Member(path, name) + ".");
             }
 
             string? reference = null;
@@ -677,7 +677,7 @@ internal static class SchemaNormalizer
 
             foreach (var member in members)
             {
-                var memberPath = path + "." + member.Key;
+                var memberPath = SchemaPath.Member(path, member.Key);
                 switch (member.Key)
                 {
                     case "$ref":
@@ -752,7 +752,7 @@ internal static class SchemaNormalizer
                         maxItems = NormalizeNonNegativeInteger(member.Value, memberPath);
                         break;
                     default:
-                        throw Unsupported("Schema keyword '" + member.Key + "' at " + memberPath + " is outside the closed normalized model and requires review.");
+                        throw Unsupported("Schema keyword at " + memberPath + " is outside the closed normalized model and requires review.");
                 }
             }
 

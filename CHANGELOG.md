@@ -16,3 +16,4 @@ This file records consumer-facing changes to KeelMatrix.AiToolContract.
 - Input compatibility and output-guarantee classifications, independent declaration and required-membership changes, and acceptance bound to the compared candidate.
 - Recursive unsupported-transition protection for newly required declarations, with schema locations retained in counter, enum-encoding, and malformed-string diagnostics.
 - Distinct metadata/input/return diagnostic paths, lossless Unicode persistence, and bounded schema/enum processing and canonical output, including nested enum/default values and tool metadata.
+- Quoted arbitrary raw-member locations in early property counters, duplicate detection, and unsupported-keyword rejection.

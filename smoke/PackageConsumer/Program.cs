@@ -143,6 +143,15 @@ foreach (var output in new[] { false, true })
     try { ParseBaseline(output ? "{}" : "{\"description\":\"\\ud800\"}", output ? "{\"description\":\"\\ud800\"}" : null); }
     catch (AiToolContractException ex) { malformedLocated = ex.Diagnostic.Kind == AiToolDiagnosticKind.MalformedBaseline && ex.Diagnostic.Message.Contains(role + ".description", StringComparison.Ordinal); }
     Require(malformedLocated, "A malformed schema string lost its location.");
+
+    const string arbitrarySchema = "{\"description\":\"x\",\"properties[\\\"x\\\"].items\":0}";
+    using var arbitraryDocument = JsonDocument.Parse(arbitrarySchema);
+    using var emptyDocument = JsonDocument.Parse("{}");
+    var arbitraryTools = new[] { AIFunctionFactory.CreateDeclaration("tool", null, output ? emptyDocument.RootElement.Clone() : arbitraryDocument.RootElement.Clone(), output ? arbitraryDocument.RootElement.Clone() : null) };
+    var rawFailure = AiToolContractCapture.Capture(arbitraryTools, new AiToolContractLimits { MaxProperties = 1 });
+    Require(!rawFailure.Succeeded && rawFailure.Baseline is null && rawFailure.Diagnostic?.Kind == AiToolDiagnosticKind.CanonicalizationOrResourceLimit && rawFailure.Diagnostic.Message.Contains(role + "[\"properties[\\u0022x\\u0022].items\"]", StringComparison.Ordinal), "An early raw-member counter lost its quoted location.");
+    var unsupportedFailure = AiToolContractCapture.Capture(arbitraryTools);
+    Require(!unsupportedFailure.Succeeded && unsupportedFailure.Diagnostic?.Kind == AiToolDiagnosticKind.UnsupportedClassification && unsupportedFailure.Diagnostic.Message.Contains(role + "[\"properties[\\u0022x\\u0022].items\"]", StringComparison.Ordinal), "An unsupported member lost its quoted location.");
 }
 
 Console.WriteLine("CONSUMER_SMOKE_PASS");

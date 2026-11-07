@@ -133,7 +133,7 @@ public sealed class AiToolContractDiagnostic
     /// <summary>Diagnostic category.</summary>
     public AiToolDiagnosticKind Kind { get; }
 
-    /// <summary>Actionable diagnostic text; schema failures identify the input or return root and affected location.</summary>
+    /// <summary>Actionable diagnostic text; schema failures identify the input or return root and affected location. Arbitrary member names use JSON-quoted brackets, including before keyword validation.</summary>
     public string Message { get; }
 }
 

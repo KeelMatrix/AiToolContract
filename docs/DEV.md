@@ -74,6 +74,8 @@ The consumer captures a real `AIFunction`, round-trips a baseline, verifies clea
 
 `RecursiveRequiredTests` covers newly required children and unsupported components through capture, baseline round trips, comparison, verification, and both acceptance methods. `SchemaFailureLocationTests` covers counter boundaries, enum-key expansion, and malformed schema decoding in both roles. The package consumer also checks recursive unsupported rejection and failure locations against the built archive.
 
+`RawMemberLocationTests` covers arbitrary names before keyword validation, flat-versus-nested aliases, exact/overflow counters, duplicate and unsupported rejection, and decoder context. It exercises both schema roles at root, property, items, and mixed placements, with valid normalized siblings for comparison and serialization.
+
 The CI/release-equivalent command is `pwsh .\scripts\Invoke-PackageConsumerSmoke.ps1 -PackagePath <exact-nupkg> -Version <package-version> -AbstractionsVersion 10.11.0`; it runs the net8.0 consumer and compiles a separate netstandard2.0 consumer against that exact archive.
 
 Clean up the isolated feed and package cache after the smoke run:
