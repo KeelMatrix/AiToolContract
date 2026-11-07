@@ -14,4 +14,4 @@ This file records consumer-facing changes to KeelMatrix.AiToolContract.
 - A closed normalized schema model for capture, baseline parsing, and comparison, with explicit review results for unsupported semantics.
 - Compatibility classifications for enum, required-set, and type-union transitions in input and return schemas, together with validated metadata such as descriptions, defaults, formats, and URI-reference values.
 - Input compatibility and output-guarantee classifications, independent declaration and required-membership changes, and acceptance bound to the compared candidate.
-- Escaped diagnostic paths and bounded canonical output, including nested enum/default values and tool metadata.
+- Distinct metadata/input/return diagnostic paths, lossless Unicode persistence, and bounded schema/enum processing and canonical output, including nested enum/default values and tool metadata.

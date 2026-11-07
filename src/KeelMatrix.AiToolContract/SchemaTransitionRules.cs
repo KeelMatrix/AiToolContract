@@ -342,9 +342,12 @@ internal static class SchemaTransitionRules
 
     private static SchemaTransitionDirection ValueSetDirection(IReadOnlyList<NormalizedJsonValue> oldValues, IReadOnlyList<NormalizedJsonValue> newValues)
     {
-        var narrowed = newValues.All(value => oldValues.Any(value.SemanticallyEquals)) && newValues.Count < oldValues.Count;
-        var expanded = oldValues.All(value => newValues.Any(value.SemanticallyEquals)) && oldValues.Count < newValues.Count;
-        return narrowed ? SchemaTransitionDirection.Narrowed : expanded ? SchemaTransitionDirection.Expanded : SchemaTransitionDirection.Changed;
+        return EnumValueSet.Compare(oldValues, newValues) switch
+        {
+            EnumSetRelation.Narrowed => SchemaTransitionDirection.Narrowed,
+            EnumSetRelation.Expanded => SchemaTransitionDirection.Expanded,
+            _ => SchemaTransitionDirection.Changed
+        };
     }
 
     internal static bool TypeSubset(IReadOnlyList<string> subset, IReadOnlyList<string> superset) =>

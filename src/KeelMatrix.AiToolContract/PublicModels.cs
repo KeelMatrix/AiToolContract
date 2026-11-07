@@ -145,7 +145,7 @@ public sealed class AiToolContractTool
             name,
             description,
             SchemaNormalizer.Normalize(inputSchemaJson, AiToolContractLimits.Default),
-            returnSchemaJson is null ? null : SchemaNormalizer.Normalize(returnSchemaJson, AiToolContractLimits.Default),
+            returnSchemaJson is null ? null : SchemaNormalizer.Normalize(returnSchemaJson, AiToolContractLimits.Default, "$.returnSchema"),
             requiresApproval)
     {
     }
@@ -253,7 +253,7 @@ public sealed class AiToolChange
     /// <summary>Affected tool name.</summary>
     public string ToolName { get; }
 
-    /// <summary>Schema or metadata path with JSON-quoted bracket segments for dynamic property names, when known.</summary>
+    /// <summary>JSON-style location: $ for metadata, $.inputSchema for inputs, or $.returnSchema for outputs. Dynamic names use JSON-quoted brackets.</summary>
     public string Path { get; }
 
     /// <summary>Human-readable explanation.</summary>

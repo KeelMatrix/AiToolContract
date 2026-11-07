@@ -175,7 +175,7 @@ public sealed class CompatibilityRegressionTests
         var diff = AiToolContractVerifier.Compare(baseline, candidate);
         Assert.Equal(names.Length, diff.Changes.Select(c => c.Path).Distinct(StringComparer.Ordinal).Count());
         foreach (var name in names)
-            Assert.Contains(diff.Changes, c => c.Path == (output ? "$.returnSchema" : "$") + ".properties[" + JsonSerializer.Serialize(name) + "].enum");
+            Assert.Contains(diff.Changes, c => c.Path == (output ? "$.returnSchema" : "$.inputSchema") + ".properties[" + JsonSerializer.Serialize(name) + "].enum");
     }
 
     private static void AssertCovered(NormalizedSchema before, NormalizedSchema after)
@@ -201,7 +201,7 @@ public sealed class CompatibilityRegressionTests
         var changes = AiToolContractVerifier.Compare(baseline, candidate).Changes;
         Assert.Equal(2, changes.Count);
         Assert.Equal(2, changes.Select(c => c.Path).Distinct(StringComparer.Ordinal).Count());
-        var root = output ? "$.returnSchema" : "$";
+        var root = output ? "$.returnSchema" : "$.inputSchema";
         Assert.Contains(changes, c => c.Path == root + ".properties[\"a.properties.b\"].enum");
         Assert.Contains(changes, c => c.Path == root + ".properties[\"a\"].properties[\"b\"].enum");
     }
@@ -223,7 +223,7 @@ public sealed class CompatibilityRegressionTests
             var baseline = output ? Capture("{}", Schema(before)) : Capture(Schema(before));
             var candidate = output ? Capture("{}", Schema(after)) : Capture(Schema(after));
             var change = Assert.Single(AiToolContractVerifier.Compare(baseline, candidate).Changes);
-            Assert.Equal((output ? "$.returnSchema" : "$") + ".properties[" + JsonSerializer.Serialize(name) + "]." + keyword, change.Path);
+            Assert.Equal((output ? "$.returnSchema" : "$.inputSchema") + ".properties[" + JsonSerializer.Serialize(name) + "]." + keyword, change.Path);
         }
     }
 
@@ -238,7 +238,7 @@ public sealed class CompatibilityRegressionTests
         var limits = new AiToolContractLimits { MaxSchemaDepth = 5 };
         var result = AiToolContractCapture.Capture(new AITool[] { AIFunctionFactory.CreateDeclaration("tool", null, inputDocument.RootElement.Clone(), outputDocument?.RootElement.Clone()) }, limits);
         Assert.False(result.Succeeded);
-        var expected = (output ? "$.returnSchema" : "$") + ".properties[\"a.b\"].default[\"[]\"][0][0]";
+        var expected = (output ? "$.returnSchema" : "$.inputSchema") + ".properties[\"a.b\"].default[\"[]\"][0][0]";
         Assert.Contains(expected, result.Diagnostic!.Message, StringComparison.Ordinal);
         var baseline = output ? Capture("{}", schema) : Capture(schema);
         var parseError = Assert.Throws<AiToolContractException>(() => AiToolContractJson.Parse(AiToolContractJson.Serialize(baseline), limits));

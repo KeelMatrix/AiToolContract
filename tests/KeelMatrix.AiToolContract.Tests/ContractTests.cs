@@ -384,7 +384,8 @@ public sealed class ContractTests
         var expected = testCase.ReturnSchema ? testCase.Rule.Return : testCase.Rule.Input;
         Assert.False(diff.IsClean, testCase.Name);
         Assert.Equal(expected.Compatibility, diff.Compatibility);
-        Assert.Single(diff.Changes);
+        var requiredDeclaration = testCase.Rule.PropertyName == nameof(NormalizedSchema.Properties) && testCase.Rule.Direction == SchemaTransitionDirection.RequiredPropertyAdded;
+        Assert.Equal(requiredDeclaration ? 2 : 1, diff.Changes.Count);
         Assert.Equal(expected.Kind, diff.Changes[0].Kind);
         Assert.Equal(expected.Compatibility, diff.Changes[0].Compatibility);
         Assert.Equal(testCase.ExpectedPath, diff.Changes[0].Path);
@@ -422,7 +423,7 @@ public sealed class ContractTests
         Assert.Single(diff.Changes);
         Assert.Equal(testCase.Kind, diff.Changes[0].Kind);
         Assert.Equal(testCase.Compatibility, diff.Changes[0].Compatibility);
-        var expectedPath = testCase.ReturnSchema ? "$.returnSchema" + testCase.Path[1..] : testCase.Path;
+        var expectedPath = (testCase.ReturnSchema ? "$.returnSchema" : "$.inputSchema") + testCase.Path[1..];
         Assert.Equal(expectedPath, diff.Changes[0].Path);
     }
 
@@ -500,7 +501,7 @@ public sealed class ContractTests
         Assert.Single(diff.Changes);
         Assert.Equal(AiToolChangeKind.Unsupported, diff.Changes[0].Kind);
         Assert.Equal(AiToolCompatibility.Risky, diff.Changes[0].Compatibility);
-        Assert.Equal("$.items", diff.Changes[0].Path);
+        Assert.Equal("$.inputSchema.items", diff.Changes[0].Path);
         Assert.Contains(diff.Diagnostics, static diagnostic => diagnostic.Kind == AiToolDiagnosticKind.UnsupportedClassification);
     }
 
@@ -521,13 +522,13 @@ public sealed class ContractTests
             {
                 Assert.Equal(AiToolChangeKind.RequiredParameterAdded, change.Kind);
                 Assert.Equal(AiToolCompatibility.Breaking, change.Compatibility);
-                Assert.Equal("$.required", change.Path);
+                Assert.Equal("$.inputSchema.required", change.Path);
             },
             change =>
             {
                 Assert.Equal(AiToolChangeKind.OptionalParameterAdded, change.Kind);
                 Assert.Equal(AiToolCompatibility.Additive, change.Compatibility);
-                Assert.Equal("$.required", change.Path);
+                Assert.Equal("$.inputSchema.required", change.Path);
             });
 
         var withinLimit = AiToolContractVerifier.Compare(baseline, candidate, new AiToolContractLimits { MaxChanges = 2 });
@@ -545,8 +546,8 @@ public sealed class ContractTests
 
         Assert.Equal(2, diff.Changes.Count);
         Assert.All(diff.Changes, static change => Assert.Equal(AiToolChangeKind.Unsupported, change.Kind));
-        Assert.Contains(diff.Changes, static change => change.Path == "$.properties[\"Items\"].items");
-        Assert.Contains(diff.Changes, static change => change.Path == "$.properties[\"items\"].items");
+        Assert.Contains(diff.Changes, static change => change.Path == "$.inputSchema.properties[\"Items\"].items");
+        Assert.Contains(diff.Changes, static change => change.Path == "$.inputSchema.properties[\"items\"].items");
         Assert.Throws<AiToolContractException>(() => AiToolContractVerifier.Compare(baseline, candidate, new AiToolContractLimits { MaxChanges = 1 }));
     }
 
@@ -578,7 +579,7 @@ public sealed class ContractTests
 
         Assert.Single(diff.Changes);
         Assert.Equal(AiToolChangeKind.Unsupported, diff.Changes[0].Kind);
-        Assert.Equal("$.properties[" + JsonSerializer.Serialize(propertyName) + "].items", diff.Changes[0].Path);
+        Assert.Equal("$.inputSchema.properties[" + JsonSerializer.Serialize(propertyName) + "].items", diff.Changes[0].Path);
     }
 
     [Fact]
@@ -719,7 +720,7 @@ public sealed class ContractTests
 
         internal static string ExpectedPath(SchemaTransitionRule rule, int depth, bool returnSchema)
         {
-            var path = returnSchema ? "$.returnSchema" : "$";
+            var path = returnSchema ? "$.returnSchema" : "$.inputSchema";
             for (var level = depth - 1; level >= 0; level--)
                 path += ".properties[\"nested" + level + "\"]";
 
@@ -762,7 +763,7 @@ public sealed class ContractTests
                 return direction switch
                 {
                     SchemaTransitionDirection.OptionalPropertyAdded => ("{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"note\":{\"type\":\"string\"}}}"),
-                    SchemaTransitionDirection.RequiredPropertyAdded => ("{\"type\":\"object\",\"required\":[\"query\"]}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}"),
+                    SchemaTransitionDirection.RequiredPropertyAdded => ("{\"type\":\"object\"}", "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}"),
                     _ => ("{\"type\":\"object\",\"properties\":{\"result\":{\"type\":\"string\"}}}", "{\"type\":\"object\"}")
                 };
             if (propertyName == nameof(NormalizedSchema.Required))

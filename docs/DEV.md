@@ -70,7 +70,7 @@ dotnet restore .\smoke\PackageConsumer.NetStandard\PackageConsumer.NetStandard.c
 dotnet build .\smoke\PackageConsumer.NetStandard\PackageConsumer.NetStandard.csproj -c Release --no-restore --packages $smokePackages
 ```
 
-The consumer captures a real `AIFunction`, round-trips a baseline, verifies clean, adds a required argument, and observes a `Breaking` result. It also checks required output losses and swaps during declaration changes, both acceptance methods, and component-count limits.
+The consumer captures a real `AIFunction`, round-trips a baseline, verifies clean, adds a required argument, and observes a `Breaking` result. It also checks required output losses and swaps during declaration changes, existing required-member restrictions, malformed Unicode, distinct schema paths, enum membership, both acceptance methods, and component-count limits.
 
 The CI/release-equivalent command is `pwsh .\scripts\Invoke-PackageConsumerSmoke.ps1 -PackagePath <exact-nupkg> -Version <package-version> -AbstractionsVersion 10.11.0`; it runs the net8.0 consumer and compiles a separate netstandard2.0 consumer against that exact archive.
 

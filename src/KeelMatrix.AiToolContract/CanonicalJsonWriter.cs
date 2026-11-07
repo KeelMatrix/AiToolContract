@@ -33,10 +33,18 @@ internal sealed class CanonicalJsonWriter
     internal void AppendString(string value)
     {
         Reserve(2);
-        foreach (var character in value)
+        for (var index = 0; index < value.Length; index++)
         {
+            var character = value[index];
+            if (char.IsSurrogate(character))
+            {
+                if (!char.IsHighSurrogate(character) || ++index == value.Length || !char.IsLowSurrogate(value[index]))
+                    throw new AiToolContractException(new AiToolContractDiagnostic(AiToolDiagnosticKind.CaptureFailure, "A persisted string contains unmatched UTF-16 surrogates."));
+                Reserve(12);
+                continue;
+            }
             var length = character is '\\' or '\b' or '\t' or '\n' or '\f' or '\r' ? 2
-                : char.IsSurrogate(character) || JavaScriptEncoder.Default.WillEncode(character) ? 6 : 1;
+                : JavaScriptEncoder.Default.WillEncode(character) ? 6 : 1;
             Reserve(length);
         }
         if (_builder is not null)

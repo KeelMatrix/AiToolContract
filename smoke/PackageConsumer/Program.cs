@@ -1,3 +1,4 @@
+using System.Text.Json;
 using KeelMatrix.AiToolContract;
 using Microsoft.Extensions.AI;
 
@@ -45,14 +46,14 @@ Require(mixedLimitRejected, "The packed consumer did not enforce the mixed requi
 var siblingBaseline = ParseBaseline("{\"type\":\"object\",\"properties\":{\"Items\":{\"type\":\"array\"},\"items\":{\"type\":\"array\"}}}");
 var siblingCandidate = ParseBaseline("{\"type\":\"object\",\"properties\":{\"Items\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"items\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}}}}");
 var siblingDiff = AiToolContractVerifier.Compare(siblingBaseline, siblingCandidate, new AiToolContractLimits { MaxChanges = 2 });
-Require(siblingDiff.Changes.Count == 2 && siblingDiff.Changes.Any(static change => change.Path == "$.properties[\"Items\"].items") && siblingDiff.Changes.Any(static change => change.Path == "$.properties[\"items\"].items"), "The packed consumer collapsed case-distinct property paths.");
+Require(siblingDiff.Changes.Count == 2 && siblingDiff.Changes.Any(static change => change.Path == "$.inputSchema.properties[\"Items\"].items") && siblingDiff.Changes.Any(static change => change.Path == "$.inputSchema.properties[\"items\"].items"), "The packed consumer collapsed case-distinct property paths.");
 
 foreach (var propertyName in new[] { "Reference", "Description", "HasDefault", "DefaultValue", "Format", "Types", "Properties", "Required", "EnumValues", "Items", "Minimum", "Maximum", "ExclusiveMinimum", "ExclusiveMaximum", "MinLength", "MaxLength", "MinItems", "MaxItems" })
 {
     var reservedBaseline = ParseBaseline("{\"type\":\"object\",\"properties\":{\"" + propertyName + "\":{\"type\":\"array\"}}}");
     var reservedCandidate = ParseBaseline("{\"type\":\"object\",\"properties\":{\"" + propertyName + "\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}}");
     var reservedDiff = AiToolContractVerifier.Compare(reservedBaseline, reservedCandidate);
-    Require(reservedDiff.Changes.Count == 1 && reservedDiff.Changes[0].Path == "$.properties[\"" + propertyName + "\"].items", "The packed consumer rewrote reserved property path '" + propertyName + "'.");
+    Require(reservedDiff.Changes.Count == 1 && reservedDiff.Changes[0].Path == "$.inputSchema.properties[\"" + propertyName + "\"].items", "The packed consumer rewrote reserved property path '" + propertyName + "'.");
 }
 
 var outputBaseline = ParseBaseline("{}");
@@ -88,5 +89,29 @@ foreach (var composition in new[]
 var deepBaseline = ParseBaseline("{\"properties\":{\"a\":{\"properties\":{\"b\":{}}}}}");
 var depthLimits = new AiToolContractLimits { MaxSchemaDepth = 3 };
 Require(AiToolContractVerifier.Compare(deepBaseline, AiToolContractJson.Parse(AiToolContractJson.Serialize(deepBaseline, depthLimits), depthLimits), depthLimits).IsClean, "Logical schema depth did not round trip.");
+
+var existingMember = ParseBaseline("{\"required\":[\"id\"]}");
+var restrictedMember = ParseBaseline("{\"properties\":{\"id\":{\"type\":\"string\"}}}");
+var restrictedDiff = AiToolContractVerifier.Compare(existingMember, restrictedMember);
+Require(restrictedDiff.Compatibility == AiToolCompatibility.Breaking && restrictedDiff.Changes.Any(static c => c.Kind == AiToolChangeKind.TypeChanged && c.Path == "$.inputSchema.properties[\"id\"].type"), "An existing required member lost value protection.");
+var restrictionRejected = false;
+try { AiToolContractVerifier.Accept(restrictedMember, restrictedDiff); }
+catch (AiToolContractException) { restrictionRejected = true; }
+Require(restrictionRejected, "The packed consumer accepted an unreviewed value restriction.");
+
+using var emptySchema = JsonDocument.Parse("{}");
+var malformed = AiToolContractCapture.Capture(new AITool[] { AIFunctionFactory.CreateDeclaration("\ud800", null, emptySchema.RootElement) });
+Require(!malformed.Succeeded && malformed.Diagnostic!.Kind == AiToolDiagnosticKind.CaptureFailure, "Malformed Unicode was accepted for persistence.");
+var validUnicode = AiToolContractCapture.Capture(new AITool[] { AIFunctionFactory.CreateDeclaration("\ufffd😀", "valid😀", emptySchema.RootElement) });
+Require(validUnicode.Succeeded && AiToolContractVerifier.Compare(validUnicode.Baseline!, AiToolContractJson.Parse(AiToolContractJson.Serialize(validUnicode.Baseline!))).IsClean, "Valid Unicode did not persist losslessly.");
+
+var descriptionsBefore = ParseBaseline("{\"description\":\"old\"}", "{\"description\":\"old\"}");
+var descriptionsAfter = AiToolContractJson.Parse(AiToolContractJson.Serialize(ParseBaseline("{\"description\":\"new\"}", "{\"description\":\"new\"}")).Replace("\"description\":null", "\"description\":\"new\"", StringComparison.Ordinal));
+var descriptionDiff = AiToolContractVerifier.Compare(descriptionsBefore, descriptionsAfter);
+Require(descriptionDiff.Changes.Count == 3 && descriptionDiff.Changes.Select(static c => c.Path).Distinct(StringComparer.Ordinal).Count() == 3, "Tool and schema descriptions share a structured path.");
+var enumValues = string.Join(",", Enumerable.Range(1, 1000));
+var enumBefore = ParseBaseline("{\"enum\":[" + enumValues + "]}");
+var enumAfter = ParseBaseline("{\"enum\":[" + enumValues + "],\"description\":\"changed\"}");
+Require(AiToolContractVerifier.Compare(enumBefore, enumAfter, new AiToolContractLimits { MaxChanges = 1 }).Changes.Count == 1, "Unchanged enum membership generated a difference.");
 
 Console.WriteLine("CONSUMER_SMOKE_PASS");

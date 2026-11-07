@@ -79,6 +79,8 @@ public static class AiToolContractJson
         try
         {
             effectiveLimits.Validate();
+            if (!UnicodeText.IsWellFormed(json))
+                throw Malformed("The baseline contains unmatched UTF-16 surrogates.");
             EnsureBaselineByteLimit(json, effectiveLimits);
 
             RejectDuplicateProperties(json, effectiveLimits);

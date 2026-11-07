@@ -5,6 +5,7 @@ namespace KeelMatrix.AiToolContract;
 /// <summary>Compares captured baselines and requires explicit acceptance for updates.</summary>
 public static class AiToolContractVerifier
 {
+    private static readonly NormalizedSchema UnconstrainedSchema = SchemaNormalizer.Normalize("{}", AiToolContractLimits.Default);
     /// <summary>Compares two baselines without writing either one.</summary>
     public static AiToolContractDiff Compare(AiToolContractBaseline baseline, AiToolContractBaseline candidate, AiToolContractLimits? limits = null)
     {
@@ -54,7 +55,7 @@ public static class AiToolContractVerifier
                 Add(changes, effectiveLimits, new AiToolChange(AiToolChangeKind.ApprovalSafetyMetadataChanged, compatibility, oldTool.Name, "$.requiresApproval", "Approval/safety metadata changed and requires explicit review."));
             }
 
-            CompareSchema(oldTool.InputSchema, newTool.InputSchema, oldTool.Name, "$", true, changes, diagnostics, effectiveLimits, unsupportedKeys, CreateRootNode(true));
+            CompareSchema(oldTool.InputSchema, newTool.InputSchema, oldTool.Name, "$.inputSchema", true, changes, diagnostics, effectiveLimits, unsupportedKeys, CreateRootNode(true));
 
             if (oldTool.ReturnSchema is null && newTool.ReturnSchema is not null)
                 Add(changes, effectiveLimits, new AiToolChange(AiToolChangeKind.ReturnSchemaAdditive, AiToolCompatibility.Additive, oldTool.Name, "$.returnSchema", "A return schema was added."));
@@ -181,6 +182,13 @@ public static class AiToolContractVerifier
         {
             if (oldSchema.Properties.ContainsKey(newProperty.Key))
                 continue;
+            if (oldSchema.Required.Contains(newProperty.Key, StringComparer.Ordinal))
+            {
+                // A required-only member already exists with unconstrained values.
+                // Declaration and presence changes must not conceal restrictions on it.
+                CompareSchema(UnconstrainedSchema, newProperty.Value, toolName, SchemaPath.Property(path + ".properties", newProperty.Key), input, changes, diagnostics, limits, unsupportedKeys, nodeIdentity.Property(newProperty.Key));
+                continue;
+            }
             var required = newSchema.Required.Contains(newProperty.Key, StringComparer.Ordinal);
             if (!input)
             {
@@ -250,12 +258,13 @@ public static class AiToolContractVerifier
         if (oldSchema.EnumValues is null && newSchema.EnumValues is null)
             return;
 
-        var narrowed = oldSchema.EnumValues is null || newSchema.EnumValues is not null && IsSubset(newSchema.EnumValues, oldSchema.EnumValues) && !IsSubset(oldSchema.EnumValues, newSchema.EnumValues);
-        var widened = newSchema.EnumValues is null || oldSchema.EnumValues is not null && IsSubset(oldSchema.EnumValues, newSchema.EnumValues) && !IsSubset(newSchema.EnumValues, oldSchema.EnumValues);
+        var relation = EnumValueSet.Compare(oldSchema.EnumValues, newSchema.EnumValues);
+        if (relation == EnumSetRelation.Equal)
+            return;
+        var narrowed = relation == EnumSetRelation.Narrowed;
+        var widened = relation == EnumSetRelation.Expanded;
         if (!narrowed && !widened)
         {
-            if (ValuesEqual(oldSchema.EnumValues!, newSchema.EnumValues!))
-                return;
             AddUnsupported(changes, diagnostics, limits, unsupportedKeys, toolName, path + ".enum", "Enum values changed in both directions and cannot be classified safely.", CreateUnsupportedKey(toolName, nodeIdentity, nameof(NormalizedSchema.EnumValues), FindDirection(transitions, nameof(NormalizedSchema.EnumValues))));
         }
         else if (narrowed)
@@ -304,12 +313,6 @@ public static class AiToolContractVerifier
         }
         Add(changes, limits, new AiToolChange(kind, compatibility, toolName, path + "." + name, "Constraint changed."));
     }
-
-    private static bool ValuesEqual(IReadOnlyList<NormalizedJsonValue> left, IReadOnlyList<NormalizedJsonValue> right) =>
-        left.Count == right.Count && left.Zip(right, static (a, b) => a.SemanticallyEquals(b)).All(static equal => equal);
-
-    private static bool IsSubset(IReadOnlyList<NormalizedJsonValue> subset, IReadOnlyList<NormalizedJsonValue> superset) =>
-        subset.All(value => superset.Any(value.SemanticallyEquals));
 
     private static bool IsSubset(IReadOnlyList<string> subset, IReadOnlyList<string> superset) =>
         subset.All(value => superset.Contains(value, StringComparer.Ordinal));

@@ -209,7 +209,7 @@ public sealed class RequiredCompositionTests
         var declaration = AIFunctionFactory.CreateDeclaration(function.Name, function.Description, schema.RootElement.Clone(), function.ReturnJsonSchema);
         var result = AiToolContractVerifier.Verify(RoundTrip(baseline), new AITool[] { declaration });
         Assert.True(result.Capture.Succeeded);
-        CheckReport(result.Capture.Baseline!, result.Diff!, Components(IdName, DeclaredRequired, Absent, false, "$"));
+        CheckReport(result.Capture.Baseline!, result.Diff!, Components(IdName, DeclaredRequired, Absent, false, "$.inputSchema"));
     }
 
     private static List<Component> Components(string[] names, int[] before, int[] after, bool output, string path)
@@ -223,8 +223,10 @@ public sealed class RequiredCompositionTests
             var newRequired = (after[i] & 2) != 0;
             if (oldDeclared && !newDeclared)
                 result.Add(new(output ? AiToolChangeKind.ReturnSchemaBreaking : AiToolChangeKind.ParameterRemoved, AiToolCompatibility.Breaking, path + ".properties[" + JsonSerializer.Serialize(names[i]) + "]", names[i]));
-            if (!oldDeclared && newDeclared)
+            if (!oldDeclared && newDeclared && !oldRequired)
                 result.Add(new(output ? AiToolChangeKind.ReturnSchemaAdditive : newRequired ? AiToolChangeKind.RequiredParameterAdded : AiToolChangeKind.OptionalParameterAdded, !output && newRequired ? AiToolCompatibility.Breaking : AiToolCompatibility.Additive, path + ".properties[" + JsonSerializer.Serialize(names[i]) + "]", names[i]));
+            if (!oldDeclared && newDeclared && oldRequired)
+                result.Add(new(output ? AiToolChangeKind.ReturnSchemaAdditive : AiToolChangeKind.TypeChanged, output ? AiToolCompatibility.Additive : AiToolCompatibility.Breaking, path + ".properties[" + JsonSerializer.Serialize(names[i]) + "].type", null));
             if (!oldRequired && newRequired)
                 result.Add(new(output ? AiToolChangeKind.ReturnSchemaAdditive : AiToolChangeKind.RequiredParameterAdded, output ? AiToolCompatibility.Additive : AiToolCompatibility.Breaking, path + ".required", names[i]));
             if (oldRequired && !newRequired)
@@ -305,7 +307,7 @@ public sealed class RequiredCompositionTests
         _ => throw new ArgumentOutOfRangeException(nameof(position))
     };
 
-    private static string Path(bool output, int position) => (output ? "$.returnSchema" : "$") + (position switch
+    private static string Path(bool output, int position) => (output ? "$.returnSchema" : "$.inputSchema") + (position switch
     {
         0 => "",
         1 => ".properties[\"result\"]",

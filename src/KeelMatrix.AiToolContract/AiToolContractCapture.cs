@@ -43,17 +43,21 @@ public static class AiToolContractCapture
 
                 if (string.IsNullOrWhiteSpace(name))
                     return Failure(AiToolDiagnosticKind.CaptureFailure, "A tool has an empty or whitespace-only identity.");
+                if (!UnicodeText.IsWellFormed(name))
+                    return Failure(AiToolDiagnosticKind.CaptureFailure, "A tool identity contains unmatched UTF-16 surrogates.");
 
                 if (!names.Add(name))
                     return Failure(AiToolDiagnosticKind.DuplicateToolIdentity, "The catalog contains duplicate tool identity '" + name + "'.");
 
                 try
                 {
+                    var description = declaration.Description;
+                    if (description is not null && !UnicodeText.IsWellFormed(description))
+                        return Failure(AiToolDiagnosticKind.CaptureFailure, "A tool description contains unmatched UTF-16 surrogates.");
                     var inputSchema = SchemaNormalizer.Normalize(declaration.JsonSchema, effectiveLimits);
                     var returnSchema = declaration.ReturnJsonSchema is JsonElement returnElement
                         ? SchemaNormalizer.Normalize(returnElement, effectiveLimits, path: "$.returnSchema")
                         : null;
-                    var description = declaration.Description;
                     var requiresApproval = IsApprovalRequired(declaration);
                     captured.Add(new AiToolContractTool(name, description, inputSchema, returnSchema, requiresApproval));
                 }

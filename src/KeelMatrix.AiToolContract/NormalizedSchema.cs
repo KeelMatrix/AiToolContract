@@ -1,5 +1,6 @@
 ﻿using System.Globalization;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
@@ -212,9 +213,16 @@ internal sealed class NormalizedSchema
         return true;
     }
 
-    internal void ValidateLimits(AiToolContractLimits limits, string path = "$")
+    internal void ValidateLimits(AiToolContractLimits limits, string path = "$.inputSchema")
     {
-        Write(new CanonicalJsonWriter(limits.MaxSchemaBytes, countOnly: true));
+        try
+        {
+            Write(new CanonicalJsonWriter(limits.MaxSchemaBytes, countOnly: true));
+        }
+        catch (AiToolContractException ex)
+        {
+            throw new AiToolContractException(new AiToolContractDiagnostic(ex.Diagnostic.Kind, ex.Diagnostic.Message + " Schema location: " + path + "."));
+        }
         new LimitValidator(limits).Validate(this, path, 0);
     }
 
@@ -222,7 +230,7 @@ internal sealed class NormalizedSchema
     {
         if (left is null || right is null)
             return left is null && right is null;
-        return left.Count == right.Count && left.Zip(right, static (a, b) => a.SemanticallyEquals(b)).All(static equal => equal);
+        return EnumValueSet.Compare(left, right) == EnumSetRelation.Equal;
     }
 
     private static bool NullableNumberEqual(JsonNumber? left, JsonNumber? right) =>
@@ -381,6 +389,18 @@ internal enum NormalizedJsonValueKind
 
 internal sealed class NormalizedJsonValue
 {
+    private string? _enumKey;
+
+    internal string EnumKey => _enumKey ?? throw new InvalidOperationException("The enum value has no semantic key.");
+
+    internal int InitializeEnumKey(long remainingBytes)
+    {
+        var writer = new CanonicalJsonWriter(remainingBytes);
+        Write(writer);
+        _enumKey = writer.ToString();
+        return Encoding.UTF8.GetByteCount(_enumKey);
+    }
+
     private NormalizedJsonValue(NormalizedJsonValueKind kind, bool booleanValue, JsonNumber numberValue, string? stringValue, IReadOnlyList<NormalizedJsonValue>? arrayValue, IReadOnlyDictionary<string, NormalizedJsonValue>? objectValue)
     {
         Kind = kind;
@@ -416,7 +436,7 @@ internal sealed class NormalizedJsonValue
             case NormalizedJsonValueKind.Boolean:
                 return BooleanValue == other.BooleanValue;
             case NormalizedJsonValueKind.Number:
-                return NumberValue.CompareTo(other.NumberValue) == 0;
+                return NumberValue.SemanticallyEquals(other.NumberValue);
             case NormalizedJsonValueKind.String:
                 return string.Equals(StringValue, other.StringValue, StringComparison.Ordinal);
             case NormalizedJsonValueKind.Array:
@@ -487,10 +507,15 @@ internal sealed class NormalizedJsonValue
 
 internal readonly struct JsonNumber
 {
+    private readonly string _digits;
+    private readonly string _canonical;
+
     internal JsonNumber(BigInteger coefficient, BigInteger exponent)
     {
         Coefficient = coefficient;
         Exponent = exponent;
+        _digits = BigInteger.Abs(coefficient).ToString(CultureInfo.InvariantCulture);
+        _canonical = coefficient.IsZero ? "0" : (coefficient.Sign < 0 ? "-" : string.Empty) + _digits + (exponent.IsZero ? string.Empty : "e" + exponent.ToString(CultureInfo.InvariantCulture));
     }
 
     internal BigInteger Coefficient { get; }
@@ -509,38 +534,27 @@ internal readonly struct JsonNumber
         return IsNegative ? -result : result;
     }
 
-    internal string ToCanonicalString()
-    {
-        if (Coefficient.IsZero)
-            return "0";
-        var prefix = IsNegative ? "-" : string.Empty;
-        var digits = BigInteger.Abs(Coefficient).ToString(CultureInfo.InvariantCulture);
-        return prefix + digits + (Exponent.IsZero ? string.Empty : "e" + Exponent.ToString(CultureInfo.InvariantCulture));
-    }
+    internal bool SemanticallyEquals(JsonNumber other) => Coefficient == other.Coefficient && Exponent == other.Exponent;
+
+    internal string ToCanonicalString() => _canonical ?? "0";
 
     private static int CompareMagnitude(JsonNumber left, JsonNumber right)
     {
-        var leftDigits = BigInteger.Abs(left.Coefficient).ToString(CultureInfo.InvariantCulture).Length;
-        var rightDigits = BigInteger.Abs(right.Coefficient).ToString(CultureInfo.InvariantCulture).Length;
+        var leftDigits = left._digits.Length;
+        var rightDigits = right._digits.Length;
         var leftMagnitude = new BigInteger(leftDigits) + left.Exponent;
         var rightMagnitude = new BigInteger(rightDigits) + right.Exponent;
         var magnitudeComparison = leftMagnitude.CompareTo(rightMagnitude);
         if (magnitudeComparison != 0)
             return magnitudeComparison;
 
-        var leftValue = BigInteger.Abs(left.Coefficient);
-        var rightValue = BigInteger.Abs(right.Coefficient);
-        if (left.Exponent > right.Exponent)
+        for (var index = 0; index < Math.Max(leftDigits, rightDigits); index++)
         {
-            var power = left.Exponent - right.Exponent;
-            leftValue *= BigInteger.Pow(10, power <= int.MaxValue ? (int)power : throw new OverflowException("The numeric representation exceeds the supported comparison range."));
+            var comparison = (index < leftDigits ? left._digits[index] : '0').CompareTo(index < rightDigits ? right._digits[index] : '0');
+            if (comparison != 0)
+                return comparison;
         }
-        else if (right.Exponent > left.Exponent)
-        {
-            var power = right.Exponent - left.Exponent;
-            rightValue *= BigInteger.Pow(10, power <= int.MaxValue ? (int)power : throw new OverflowException("The numeric representation exceeds the supported comparison range."));
-        }
-        return leftValue.CompareTo(rightValue);
+        return 0;
     }
 }
 
@@ -557,25 +571,27 @@ internal static class SchemaNormalizer
         "string"
     };
 
-    internal static NormalizedSchema Normalize(JsonElement schema, AiToolContractLimits limits, AiToolDiagnosticKind malformedKind = AiToolDiagnosticKind.CaptureFailure, string path = "$")
+    internal static NormalizedSchema Normalize(JsonElement schema, AiToolContractLimits limits, AiToolDiagnosticKind malformedKind = AiToolDiagnosticKind.CaptureFailure, string path = "$.inputSchema")
     {
-        if (Encoding.UTF8.GetByteCount(schema.GetRawText()) > limits.MaxSchemaBytes)
-            throw Resource("The JSON Schema exceeds the configured byte limit.");
+        if (JsonMarshal.GetRawUtf8Value(schema).Length > limits.MaxSchemaBytes)
+            throw Resource("The JSON Schema exceeds the configured byte limit at " + path + ".");
         var normalized = new Normalizer(limits, malformedKind).NormalizeSchema(schema, path, 0);
         normalized.ValidateLimits(limits, path);
         return normalized;
     }
 
-    internal static NormalizedSchema Normalize(string raw, AiToolContractLimits limits)
+    internal static NormalizedSchema Normalize(string raw, AiToolContractLimits limits, string path = "$.inputSchema")
     {
         if (raw is null)
             throw Malformed("A schema value is null.");
+        if (!UnicodeText.IsWellFormed(raw))
+            throw Malformed("The JSON Schema contains unmatched UTF-16 surrogates.");
         if (Encoding.UTF8.GetByteCount(raw) > limits.MaxSchemaBytes)
             throw Resource("The JSON Schema exceeds the configured byte limit.");
         try
         {
             using var document = JsonDocument.Parse(raw, new JsonDocumentOptions { MaxDepth = limits.GetJsonDocumentMaxDepth(0), CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
-            return Normalize(document.RootElement, limits, AiToolDiagnosticKind.MalformedBaseline);
+            return Normalize(document.RootElement, limits, AiToolDiagnosticKind.MalformedBaseline, path);
         }
         catch (AiToolContractException)
         {
@@ -739,8 +755,6 @@ internal static class SchemaNormalizer
 
             types.Sort(StringComparer.Ordinal);
             required.Sort(StringComparer.Ordinal);
-            if (enumValues is List<NormalizedJsonValue> values)
-                values.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.ToCanonicalJson(), right.ToCanonicalJson()));
             return new NormalizedSchema(reference, description, hasDefault, defaultValue, format, types, properties, required, enumValues, items, minimum, maximum, exclusiveMinimum, exclusiveMaximum, minLength, maxLength, minItems, maxItems);
         }
 
@@ -756,10 +770,13 @@ internal static class SchemaNormalizer
                     throw Resource("The JSON Schema exceeds the configured array-item limit.");
                 values.Add(NormalizeValue(item, SchemaPath.Index(path, values.Count), depth));
             }
-            for (var left = 0; left < values.Count; left++)
-                for (var right = left + 1; right < values.Count; right++)
-                    if (values[left].SemanticallyEquals(values[right]))
-                        throw MalformedAt("JSON Schema enum at " + path + " contains duplicate data-model values.");
+            long remainingBytes = _limits.MaxSchemaBytes;
+            foreach (var item in values)
+                remainingBytes -= item.InitializeEnumKey(remainingBytes);
+            values.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.EnumKey, right.EnumKey));
+            for (var index = 1; index < values.Count; index++)
+                if (string.Equals(values[index - 1].EnumKey, values[index].EnumKey, StringComparison.Ordinal))
+                    throw MalformedAt("JSON Schema enum at " + path + " contains duplicate data-model values.");
             return values;
         }
 
