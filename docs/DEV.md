@@ -55,13 +55,23 @@ To run the same tests against the netstandard2.0 library asset on the net8.0 tes
 
 The shipping assembly is the only project with Public API baselines. The package gate is the canonical local archive inspection command.
 
+## Release validation
+
+The release state is defined by `CHANGELOG.md` and the shipping project's package ID and version. After building the package, validate the intended tag without creating it:
+
+```powershell
+pwsh -NoProfile -File .\scripts\Validate-Release.ps1 -Version 0.1.0 -Tag v0.1.0 -PackageDirectory .\artifacts\package-gate -RequireFinalizedChangelog
+```
+
+The tag workflow runs this same check before authentication or publication. It rejects an unfinished changelog, invalid release date, obvious first-release repair-history wording, an unexpected artifact set, or a mismatch between the tag, configured package identity, and identity embedded in either archive. `tests/Validate-Release.Tests.ps1` covers rejection and successful finalized input, including failure propagation through the workflow's validation command.
+
 ## Package-reference consumer smoke
 
 After the package gate has produced the archive, create the isolated smoke feed, copy the exact package into it, and run the consumer without a project reference:
 
 ```powershell
 New-Item -ItemType Directory -Path .\smoke\feed -Force | Out-Null
-Copy-Item .\artifacts\package-gate\KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg .\smoke\feed\KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg -Force
+Copy-Item .\artifacts\package-gate\KeelMatrix.AiToolContract.0.1.0.nupkg .\smoke\feed\KeelMatrix.AiToolContract.0.1.0.nupkg -Force
 $smokePackages = Join-Path $env:TEMP 'ai-tool-contract-smoke-packages'
 dotnet restore .\smoke\PackageConsumer\PackageConsumer.csproj --configfile .\smoke\PackageConsumer\NuGet.config --packages $smokePackages --no-cache
 dotnet build .\smoke\PackageConsumer\PackageConsumer.csproj -c Release --no-restore

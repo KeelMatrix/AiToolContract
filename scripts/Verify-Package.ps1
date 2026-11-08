@@ -3,8 +3,8 @@
 param(
     [ValidateSet('Release')]
     [string] $Configuration = 'Release',
-    [string] $Version = '0.1.0-rc.1',
-    [string] $PackageReleaseNotes = 'Initial release candidate.',
+    [string] $Version = '0.1.0',
+    [string] $PackageReleaseNotes = 'Initial public release.',
     [switch] $AllowMissingIcon
 )
 

@@ -4,14 +4,14 @@
     <IsShippingProject>true</IsShippingProject>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PackageId>KeelMatrix.AiToolContract</PackageId>
-    <Version>0.1.0-rc.1</Version>
+    <Version>0.1.0</Version>
     <Authors>KeelMatrix</Authors>
     <Company>KeelMatrix</Company>
     <Description>Baseline and compatibility-check the model-visible contracts of Microsoft.Extensions.AI tools.</Description>
     <PackageTags>ai;microsoft-extensions-ai;aifunction;function-calling;tool-calling;json-schema;testing;compatibility</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon Condition="Exists('../../icon.png')">icon.png</PackageIcon>
-    <PackageReleaseNotes>Initial release candidate.</PackageReleaseNotes>
+    <PackageReleaseNotes>Initial public release.</PackageReleaseNotes>
     <IncludeBuildOutput>true</IncludeBuildOutput>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <NoWarn>$(NoWarn);NU5046</NoWarn>

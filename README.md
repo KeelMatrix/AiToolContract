@@ -5,7 +5,7 @@ KeelMatrix.AiToolContract baselines and compatibility-checks the model-visible c
 ## Install
 
 ```sh
-dotnet add package KeelMatrix.AiToolContract
+dotnet add package KeelMatrix.AiToolContract --version 0.1.0
 ```
 
 ## Quick Start

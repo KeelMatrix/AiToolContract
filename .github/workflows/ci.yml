@@ -167,8 +167,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           foreach ($abstractionsVersion in @('10.0.0', '10.11.0')) {
             ./scripts/Invoke-PackageConsumerSmoke.ps1 `
-              -PackagePath (Join-Path $env:GITHUB_WORKSPACE 'artifacts/package-gate/KeelMatrix.AiToolContract.0.1.0-rc.1.nupkg') `
-              -Version '0.1.0-rc.1' `
+              -PackagePath (Join-Path $env:GITHUB_WORKSPACE 'artifacts/package-gate/KeelMatrix.AiToolContract.0.1.0.nupkg') `
+              -Version '0.1.0' `
               -AbstractionsVersion $abstractionsVersion
             if ($LASTEXITCODE -ne 0) { throw 'Package consumer verification failed.' }
           }
