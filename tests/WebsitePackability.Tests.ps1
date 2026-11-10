@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $originalExitCode = (Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue).Value
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot 'build/Invoke-NestedPwsh.ps1')
-$nativeDotnet = (Get-Command dotnet -CommandType Application).Source
+$originalPath = $env:PATH
 $temporaryRoot = Join-Path $ScratchRoot ('website-packability-' + [Guid]::NewGuid().ToString('N'))
 $manifest = '{"schemaVersion":1,"packages":{"KeelMatrix.AiToolContract":{"visibility":"public-product","role":"primary"}}}'
 $releaseEnable = '<IsPackable>false</IsPackable><IsPackable Condition="''$(Configuration)'' == ''Release''">True</IsPackable>'
@@ -39,6 +39,21 @@ $cases = @(
 
 try {
     New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
+    # Keep the SDK first while exercising discovery with another matching executable.
+    $sdkDirectory = Split-Path -Parent (Get-Command dotnet -CommandType Application | Select-Object -First 1).Source
+    $alternateDirectory = Join-Path $temporaryRoot 'alternate-dotnet'
+    New-Item -ItemType Directory -Path $alternateDirectory | Out-Null
+    if ($IsWindows) {
+        Set-Content -LiteralPath (Join-Path $alternateDirectory 'dotnet.cmd') '@exit /b 47'
+    }
+    else {
+        $alternateDotnet = Join-Path $alternateDirectory 'dotnet'
+        [IO.File]::WriteAllText($alternateDotnet, "#!/bin/sh`nexit 47`n")
+        [IO.File]::SetUnixFileMode($alternateDotnet, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
+    }
+    $env:PATH = $sdkDirectory + [IO.Path]::PathSeparator + $alternateDirectory + [IO.Path]::PathSeparator + $originalPath
+    if (@(Get-Command dotnet -CommandType Application).Count -lt 2) { throw 'Expected multiple dotnet executable matches.' }
+    $nativeDotnet = (Get-Command dotnet -CommandType Application | Select-Object -First 1).Source
     $selected = @($cases | Where-Object { $_.Name -clike $Case })
     if ($selected.Count -eq 0) { throw "No packability cases match '$Case'." }
     foreach ($test in $selected) {
@@ -88,7 +103,7 @@ try {
         Set-Content -LiteralPath (Join-Path $fixture 'probe.ps1') @'
 param([string] $Mode)
 $ErrorActionPreference = 'Stop'
-$nativeDotnet = (Get-Command dotnet -CommandType Application).Source
+$nativeDotnet = (Get-Command dotnet -CommandType Application | Select-Object -First 1).Source
 function dotnet {
     if ($args[0] -eq 'restore') { Write-Output 'PACKABILITY_RESTORE_REACHED'; exit 0 }
     & $nativeDotnet @args
@@ -144,6 +159,7 @@ else { & (Join-Path $PSScriptRoot 'scripts/Verify-Package.ps1') -AllowMissingIco
     Write-Output "WEBSITE_PACKABILITY_TEST_PASS: $($selected.Count) real SDK evaluation/pack and native gate cases."
 }
 finally {
+    $env:PATH = $originalPath
     if ($null -eq $originalExitCode) { Remove-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue }
     else { $global:LASTEXITCODE = $originalExitCode }
     $resolved = [IO.Path]::GetFullPath($temporaryRoot)
