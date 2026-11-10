@@ -76,6 +76,10 @@ jobs:
         shell: pwsh
         run: ./tests/PackageGate.Tests.ps1
 
+      - name: Verify website metadata rejection and gate propagation
+        shell: pwsh
+        run: ./tests/WebsiteMetadata.Tests.ps1
+
       - name: Run package gate
         shell: pwsh
         env:

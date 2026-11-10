@@ -143,6 +143,8 @@ Require ($packableShippingProjects.Count -eq 1 -and $packableShippingProjects[0]
 Require ($packableShippingProjects.Count -eq 1 -and $packableShippingProjects[0].GenerateDocumentationFile -ceq 'true') 'The packable shipping project must enable XML documentation generation for every target framework.'
 Write-Host ("PACKABLE_PROJECT_COUNT: {0}; PACKABLE_SHIPPING_PROJECT_COUNT: {1}" -f $packableProjects.Count, $packableShippingProjects.Count)
 
+& (Join-Path $PSScriptRoot 'Test-WebsiteMetadata.ps1') -RepositoryRoot $repoRoot
+
 Write-Host "Package gate root: $repoRoot"
 Write-Host 'PACKAGE_ICON_CHECK: repository-root icon.png is required by the pack configuration at src/KeelMatrix.AiToolContract/KeelMatrix.AiToolContract.csproj:12 and :26.'
 $rootIconPath = Join-Path $repoRoot 'icon.png'
@@ -187,6 +189,10 @@ $nupkgPath = Join-Path $artifactDirectory $nupkgName
 $snupkgPath = Join-Path $artifactDirectory $snupkgName
 Require (Test-Path -LiteralPath $nupkgPath -PathType Leaf) "Expected package '$nupkgName' was not produced."
 Require (Test-Path -LiteralPath $snupkgPath -PathType Leaf) "Expected symbol package '$snupkgName' was not produced."
+
+if (Test-Path -LiteralPath $nupkgPath -PathType Leaf) {
+    & (Join-Path $PSScriptRoot 'Test-WebsiteMetadata.ps1') -RepositoryRoot $repoRoot -PackagePath $nupkgPath
+}
 
 if ((Test-Path -LiteralPath $nupkgPath -PathType Leaf) -and (Test-Path -LiteralPath $snupkgPath -PathType Leaf)) {
     $artifactNames = @(Get-ChildItem -LiteralPath $artifactDirectory -File | Select-Object -ExpandProperty Name)
@@ -233,7 +239,7 @@ if ((Test-Path -LiteralPath $nupkgPath -PathType Leaf) -and (Test-Path -LiteralP
             Require ($metadata.version -ceq $version) 'Nuspec version is incorrect.'
             Require ($metadata.authors -ceq 'KeelMatrix') 'Nuspec authors metadata is incorrect.'
             Require ($metadata.description -ceq 'Baseline and compatibility-check the model-visible contracts of Microsoft.Extensions.AI tools.') 'Nuspec description is incorrect.'
-            Require ($metadata.tags -ceq 'ai microsoft-extensions-ai aifunction function-calling tool-calling json-schema testing compatibility') 'Nuspec tags are incorrect.'
+            Require ($metadata.tags -ceq 'ai microsoft-extensions-ai aifunction function-calling tool-calling json-schema testing compatibility keelmatrix-public-product keelmatrix-primary') 'Nuspec tags are incorrect.'
             Require ($metadata.license.type -ceq 'expression' -and $metadata.license.'#text' -ceq 'MIT') 'Nuspec license metadata is incorrect.'
             Require ($metadata.readme -ceq 'README.md') 'Nuspec readme metadata is incorrect.'
             Require ($metadata.projectUrl -ceq 'https://github.com/KeelMatrix/AiToolContract') 'Nuspec project URL metadata is incorrect.'

@@ -8,7 +8,7 @@
     <Authors>KeelMatrix</Authors>
     <Company>KeelMatrix</Company>
     <Description>Baseline and compatibility-check the model-visible contracts of Microsoft.Extensions.AI tools.</Description>
-    <PackageTags>ai;microsoft-extensions-ai;aifunction;function-calling;tool-calling;json-schema;testing;compatibility</PackageTags>
+    <PackageTags>ai;microsoft-extensions-ai;aifunction;function-calling;tool-calling;json-schema;testing;compatibility;keelmatrix-public-product;keelmatrix-primary</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon Condition="Exists('../../icon.png')">icon.png</PackageIcon>
     <PackageReleaseNotes>Initial public release.</PackageReleaseNotes>

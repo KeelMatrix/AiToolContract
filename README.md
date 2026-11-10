@@ -52,6 +52,8 @@ The configured `AiToolContractLimits` are enforced consistently during capture, 
 
 ## Documentation
 
+The root [website classification manifest](keelmatrix.website.json) declares this library as the public product family's primary package. It supports discovery of existing published versions; future versions also carry matching classification tags.
+
 - [Capture and verification workflow](docs/WORKFLOW.md)
 - [Compatibility categories and examples](docs/COMPATIBILITY.md)
 - [Baseline format and versioning](docs/BASELINE.md)

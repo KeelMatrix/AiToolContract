@@ -96,6 +96,10 @@ jobs:
         shell: pwsh
         run: ./tests/Validate-Release.Tests.ps1
 
+      - name: Verify website metadata rejection and gate propagation
+        shell: pwsh
+        run: ./tests/WebsiteMetadata.Tests.ps1
+
       - name: Verify IDE artifact ignore rules and negative controls
         shell: pwsh
         run: |

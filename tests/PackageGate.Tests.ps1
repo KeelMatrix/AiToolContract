@@ -12,6 +12,8 @@ function dotnet { throw 'PACKAGE_GATE_BUILD_REACHED' }
 try {
     New-Item -ItemType Directory -Path (Join-Path $temporaryRoot 'scripts') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $temporaryRoot 'build') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $temporaryRoot 'src') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $temporaryRoot 'src/Fixture.csproj') '<Project />'
     Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/Verify-Package.ps1') -Destination (Join-Path $temporaryRoot 'scripts')
     foreach ($name in @('Invoke-NestedPwsh.ps1', 'Test-NestedPwshLaunch.ps1', 'Test-SymbolMetadata.ps1')) {
         Copy-Item -LiteralPath (Join-Path $repoRoot "build/$name") -Destination (Join-Path $temporaryRoot 'build')
