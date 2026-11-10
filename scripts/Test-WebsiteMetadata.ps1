@@ -1,7 +1,9 @@
 #requires -Version 7.0
 param(
     [string] $RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
-    [string] $PackagePath
+    [string] $PackagePath,
+    [ValidateSet('Release')]
+    [string] $Configuration = 'Release'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,10 +13,10 @@ $projects = @(Get-ChildItem -LiteralPath $RepositoryRoot -Recurse -File -Filter 
     Where-Object { $_.FullName -notmatch '[/\\](bin|obj)[/\\]' })
 $packages = @(
     foreach ($project in $projects) {
-        $output = & dotnet msbuild $project.FullName -nologo '-getProperty:IsPackable,PackageId,PackageTags,PackageProjectUrl,RepositoryUrl,RepositoryType'
+        $output = & dotnet msbuild $project.FullName -nologo "-p:Configuration=$Configuration" '-getProperty:IsPackable,PackageId,PackageTags,PackageProjectUrl,RepositoryUrl,RepositoryType'
         if ($LASTEXITCODE -ne 0) { throw 'Website metadata MSBuild evaluation failed.' }
         $properties = ($output -join "`n" | ConvertFrom-Json).Properties
-        if ($properties.IsPackable -ceq 'true') { $properties }
+        if ($properties.IsPackable -ieq 'true') { $properties }
     }
 )
 Assert-WebsiteMetadata $manifest $packages

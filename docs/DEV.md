@@ -33,7 +33,9 @@ pwsh -NoProfile -File .\scripts\Test-WebsiteMetadata.ps1
 pwsh -NoProfile -File .\tests\WebsiteMetadata.Tests.ps1
 ```
 
-The metadata check evaluates every packable project, including inherited properties, and rejects malformed or duplicate manifest members, missing or extra IDs, invalid roles and visibility, primary-count errors, missing/duplicate/conflicting/wrong-case sentinels, classification disagreement, and noncanonical project/repository URLs. `Verify-Package.ps1` runs it before restore and again against the built archive, including preservation of all source tags. CI and release validation use that same package gate and run the metadata negative controls; a failure stops validation before publication.
+Both the metadata check and `Verify-Package.ps1` evaluate all projects with the SDK in the supported shipping configuration, `Release`, including imported props/targets and their effective overrides. Packability uses the SDK's case-insensitive `true` comparison. The package gate requires exactly one packable project, the shipping library; tests, smoke consumers, and samples must remain nonpackable. An invalid project set stops the gate before restore.
+
+The metadata check rejects malformed or duplicate manifest members, missing or extra IDs, invalid roles and visibility, primary-count errors, missing/duplicate/conflicting/wrong-case sentinels, classification disagreement, and noncanonical project/repository URLs. `Verify-Package.ps1` runs it before restore and again against the built archive, including preservation of all source tags. CI and release validation use that same package gate and run the metadata negative controls. `WebsiteMetadata.Tests.ps1` also runs real SDK evaluation and packing fixtures for Boolean casing, Release conditions, imported overrides, and accidental sibling packages, with native-process checks of both validation paths. A failure stops validation before publication.
 
 Run the repository-controlled gate from the repository root. It restores the solution, builds the packable project, creates the exact `.nupkg` and `.snupkg`, and inspects their metadata and contents.
 

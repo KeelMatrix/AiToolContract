@@ -147,7 +147,9 @@ try {
     if ($LASTEXITCODE -eq 0 -or ($childOutput -join "`n") -notmatch 'Website metadata') {
         throw 'Metadata validation did not propagate failure to a native process exit code.'
     }
-    Write-Output "WEBSITE_METADATA_TEST_PASS: $script:checks negative cases and real package gate propagation."
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'WebsitePackability.Tests.ps1') -ScratchRoot $ScratchRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Real SDK packability regression tests failed.' }
+    Write-Output "WEBSITE_METADATA_TEST_PASS: $script:checks negative cases, real SDK packability, and real package gate propagation."
 }
 finally {
     if ($null -eq $originalExitCode) {

@@ -108,10 +108,10 @@ function Assert-ExactEntries([string[]] $actual, [string[]] $expected, [string] 
     Require (($actualSorted -join "`n") -ceq ($expectedSorted -join "`n")) $message
 }
 
-$projectPaths = @(Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter '*.csproj' -File | Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' } | Sort-Object FullName)
+$projectPaths = @(Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter '*.csproj' -File | Where-Object { $_.FullName -notmatch '[/\\](bin|obj)[/\\]' } | Sort-Object FullName)
 $projectEvaluations = [System.Collections.Generic.List[object]]::new()
 foreach ($projectPath in $projectPaths) {
-    $evaluationOutput = & dotnet msbuild $projectPath.FullName -getProperty:IsPackable -getProperty:IsShippingProject -getProperty:GenerateDocumentationFile 2>&1
+    $evaluationOutput = & dotnet msbuild $projectPath.FullName -nologo "-p:Configuration=$Configuration" '-getProperty:IsPackable,IsShippingProject,GenerateDocumentationFile' 2>&1
     if ($LASTEXITCODE -ne 0) {
         Fail "MSBuild packability evaluation failed for '$($projectPath.FullName)'."
         continue
@@ -135,15 +135,18 @@ foreach ($projectPath in $projectPaths) {
     }
 }
 
-$packableProjects = @($projectEvaluations | Where-Object { $_.IsPackable -ceq 'true' })
-$packableShippingProjects = @($packableProjects | Where-Object { $_.IsShippingProject -ceq 'true' })
+$packableProjects = @($projectEvaluations | Where-Object { $_.IsPackable -ieq 'true' })
+$packableShippingProjects = @($packableProjects | Where-Object { $_.IsShippingProject -ieq 'true' })
 Require ($projectEvaluations.Count -eq $projectPaths.Count) 'Packability evaluation did not produce one result for every project.'
 Require ($packableProjects.Count -eq 1) "Expected exactly one packable project, found $($packableProjects.Count)."
 Require ($packableShippingProjects.Count -eq 1 -and $packableShippingProjects[0].Path -eq $project) 'Expected exactly one packable shipping project, and it must be the shipping library.'
-Require ($packableShippingProjects.Count -eq 1 -and $packableShippingProjects[0].GenerateDocumentationFile -ceq 'true') 'The packable shipping project must enable XML documentation generation for every target framework.'
+Require ($packableShippingProjects.Count -eq 1 -and $packableShippingProjects[0].GenerateDocumentationFile -ieq 'true') 'The packable shipping project must enable XML documentation generation for every target framework.'
 Write-Host ("PACKABLE_PROJECT_COUNT: {0}; PACKABLE_SHIPPING_PROJECT_COUNT: {1}" -f $packableProjects.Count, $packableShippingProjects.Count)
 
-& (Join-Path $PSScriptRoot 'Test-WebsiteMetadata.ps1') -RepositoryRoot $repoRoot
+& (Join-Path $PSScriptRoot 'Test-WebsiteMetadata.ps1') -RepositoryRoot $repoRoot -Configuration $Configuration
+if ($failures.Count -gt 0) {
+    throw "Package gate source validation failed: $($failures -join ' ')"
+}
 
 Write-Host "Package gate root: $repoRoot"
 Write-Host 'PACKAGE_ICON_CHECK: repository-root icon.png is required by the pack configuration at src/KeelMatrix.AiToolContract/KeelMatrix.AiToolContract.csproj:12 and :26.'
@@ -191,7 +194,7 @@ Require (Test-Path -LiteralPath $nupkgPath -PathType Leaf) "Expected package '$n
 Require (Test-Path -LiteralPath $snupkgPath -PathType Leaf) "Expected symbol package '$snupkgName' was not produced."
 
 if (Test-Path -LiteralPath $nupkgPath -PathType Leaf) {
-    & (Join-Path $PSScriptRoot 'Test-WebsiteMetadata.ps1') -RepositoryRoot $repoRoot -PackagePath $nupkgPath
+    & (Join-Path $PSScriptRoot 'Test-WebsiteMetadata.ps1') -RepositoryRoot $repoRoot -Configuration $Configuration -PackagePath $nupkgPath
 }
 
 if ((Test-Path -LiteralPath $nupkgPath -PathType Leaf) -and (Test-Path -LiteralPath $snupkgPath -PathType Leaf)) {
